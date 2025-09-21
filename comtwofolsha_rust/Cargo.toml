@@ -1,5 +1,5 @@
 [package]
-name = "comtwoflosha_rust"
+name = "compare_folders"
 version = "1.0.0"
 edition = "2024"
 

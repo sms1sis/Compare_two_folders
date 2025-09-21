@@ -78,7 +78,7 @@ cargo run -- ./dirA ./dirB
 
 ```
 ===============================================
-         Folder File Comparison Utility         
+   Folder File Comparison Utility by sms1sis         
 ===============================================
 
          Comparing files in folders:            
@@ -106,7 +106,7 @@ Extra in Folder2     : 1
 
 ## License
 
-This project is licensed under the MIT License.
+No license specified yet.
 
 ---
 
