@@ -6,7 +6,7 @@ The output includes a colorized summary with perfectly aligned results.
 
 ---
 
-## Features
+## ✨ Features
 
 - **Compare two directories**: Checks for files with the same name in both folders.
 - **SHA256 hash comparison**: Compares file contents securely using SHA256.
@@ -16,28 +16,28 @@ The output includes a colorized summary with perfectly aligned results.
 
 ---
 
-## Build & Usage
+## ⚙️ Build & Usage
 
 ### C Version
 
-#### Prerequisites
+#### 📦 Requirements
 
 - GCC or Clang
 - OpenSSL development libraries (`libssl-dev` on Debian/Ubuntu)
 
-#### Build
+#### ⚙️ Buildd
 
 ```sh
 gcc -o compare_folders compare_folders.c -lssl -lcrypto
 ```
 
-#### Usage
+#### 🚀 Usage
 
 ```sh
 ./compare_folders <folder1> <folder2>
 ```
 
-#### Example
+#### 📝 Example
 
 ```sh
 ./compare_folders ./dirA ./dirB
@@ -47,18 +47,18 @@ gcc -o compare_folders compare_folders.c -lssl -lcrypto
 
 ### Rust Version
 
-#### Prerequisites
+#### 📦 Requirements
 
 - Rust (https://www.rust-lang.org/tools/install)
 - [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html)
 
-#### Build
+#### ⚙️  Build
 
 ```sh
 cargo build --release
 ```
 
-#### Usage
+#### 🚀 Usage
 
 ```sh
 cargo run -- <folder1> <folder2>
@@ -66,7 +66,7 @@ cargo run -- <folder1> <folder2>
 ./target/release/folder_compare <folder1> <folder2>
 ```
 
-#### Example
+#### 📝 Example
 
 ```sh
 cargo run -- ./dirA ./dirB
@@ -74,7 +74,7 @@ cargo run -- ./dirA ./dirB
 
 ---
 
-## Example Output
+## 🖥️ Example Output
 
 ```
 ===============================================
@@ -104,13 +104,7 @@ Extra in Folder2     : 1
 
 ---
 
-## License
-
-No license specified yet.
-
----
-
-## Credits
+## 🙌 Credit
 
 - [OpenSSL](https://www.openssl.org/) for C SHA256 implementation
 - [`sha2`](https://crates.io/crates/sha2), [`colored`](https://crates.io/crates/colored), and [`terminal_size`](https://crates.io/crates/terminal_size) Rust crates
