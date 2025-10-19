@@ -45,7 +45,7 @@ gcc -o compare_folders compare_folders.c -lssl -lcrypto
 
 ---
 
-### Rust Version
+### 🦀 Rust Version
 
 #### 📦 Requirements
 
