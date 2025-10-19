@@ -25,7 +25,7 @@ The output includes a colorized summary with perfectly aligned results.
 - GCC or Clang
 - OpenSSL development libraries (`libssl-dev` on Debian/Ubuntu)
 
-#### ⚙️ Buildd
+#### ⚙️ Build
 
 ```sh
 gcc -o compare_folders compare_folders.c -lssl -lcrypto
