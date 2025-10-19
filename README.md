@@ -28,19 +28,19 @@ The output includes a colorized summary with perfectly aligned results.
 #### ⚙️ Build
 
 ```sh
-gcc -o compare_folders compare_folders.c -lssl -lcrypto
+make
 ```
 
 #### 🚀 Usage
 
 ```sh
-./compare_folders <folder1> <folder2>
+./compare_folders_c <folder1> <folder2>
 ```
 
 #### 📝 Example
 
 ```sh
-./compare_folders ./dirA ./dirB
+./compare_folders_c ./dirA ./dirB
 ```
 
 ---
