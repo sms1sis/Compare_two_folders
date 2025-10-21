@@ -257,50 +257,108 @@ fn main() -> io::Result<()> {
     }
 
     let elapsed = start_time.elapsed();
-    let mut output = String::new();
 
     match output_format {
         OutputFormat::Txt => {
-            output.push_str(&format!("{}\n", "==============================================".bright_blue()));
-            output.push_str("   Folder File Comparison Utility\n");
-            output.push_str(&format!("{}\n", "==============================================".bright_blue()));
+            if let Some(output_folder) = output_folder {
+                let mut output = String::new();
+                output.push_str(&format!("{}\n", "==============================================".bright_blue()));
+                output.push_str("   Folder File Comparison Utility\n");
+                output.push_str(&format!("{}\n", "==============================================".bright_blue()));
 
-            for res in &results {
-                let status_colored = match res.status.as_str() {
-                    "MATCH" => "MATCH".green(),
-                    "DIFF" => "DIFF".yellow(),
-                    "MISSING" => "MISSING".red(),
-                    "EXTRA" => "EXTRA".cyan(),
-                    _ => res.status.normal(),
-                };
+                for res in &results {
+                    let status_colored = match res.status.as_str() {
+                        "MATCH" => "MATCH".green(),
+                        "DIFF" => "DIFF".yellow(),
+                        "MISSING" => "MISSING".red(),
+                        "EXTRA" => "EXTRA".cyan(),
+                        _ => res.status.normal(),
+                    };
 
-                output.push_str(&format!(
-                    "[{}]  {}\n",
-                    status_colored,
-                    res.file.display().to_string().color(color_for_file(res.file.to_str().unwrap()))
-                ));
+                    output.push_str(&format!(
+                        "[{}]  {}\n",
+                        status_colored,
+                        res.file.display().to_string().color(color_for_file(res.file.to_str().unwrap()))
+                    ));
 
-                if res.status == "DIFF" {
-                    if let (Some(h1), Some(h2)) = (&res.hash1, &res.hash2) {
-                        output.push_str(&format!("    {}: {}\n", "folder1".dimmed(), format_hashres(h1, algo)));
-                        output.push_str(&format!("    {}: {}\n", "folder2".dimmed(), format_hashres(h2, algo)));
+                    if res.status == "DIFF" {
+                        if let (Some(h1), Some(h2)) = (&res.hash1, &res.hash2) {
+                            output.push_str(&format!("    {}: {}\n", "folder1".dimmed(), format_hashres(h1, algo)));
+                            output.push_str(&format!("    {}: {}\n", "folder2".dimmed(), format_hashres(h2, algo)));
+                        }
+                    } else if res.status == "MATCH" {
+                        if let Some(h1) = &res.hash1 {
+                            output.push_str(&format!("    {}: {}\n", "in_both".dimmed(), format_hashres(h1, algo)));
+                        }
                     }
+                    output.push_str("\n");
                 }
-            }
 
-            output.push_str(&format!("{}\n", "-----------------------------------------------".bright_blue()));
-            let total_width = 47; // same width as your dash lines
-            let title = "Summary";
-            let padding = (total_width - title.len()) / 2;
-            output.push_str(&format!("{:padding$}{}\n", "", title.bold().white().on_bright_black(), padding = padding));
-            output.push_str(&format!("{}\n", "-----------------------------------------------".bright_blue()));
-            output.push_str(&format!("{} {}\n", "Total files checked  :".bold().cyan(), total.to_string().bold().white()));
-            output.push_str(&format!("{} {}\n", "Matches              :".bold().green(), matches.to_string().bold().green()));
-            output.push_str(&format!("{} {}\n", "Differences          :".bold().yellow(), diffs.to_string().bold().yellow()));
-            output.push_str(&format!("{} {}\n", "Missing in Folder2   :".bold().red(), missing.to_string().bold().red()));
-            output.push_str(&format!("{} {}\n", "Extra in Folder2     :".bold().magenta(), extra.to_string().bold().magenta()));
-            output.push_str(&format!("{} {:.2?}\n", "Time taken           :".bold().blue(), elapsed));
-            output.push_str(&format!("{}\n", "==============================================".bright_blue()));
+                output.push_str(&format!("{}\n", "-----------------------------------------------".bright_blue()));
+                let total_width = 47; // same width as your dash lines
+                let title = "Summary";
+                let padding = (total_width - title.len()) / 2;
+                output.push_str(&format!("{:padding$}{}\n", "", title.bold().white().on_bright_black(), padding = padding));
+                output.push_str(&format!("{}\n", "-----------------------------------------------".bright_blue()));
+                output.push_str(&format!("{} {}\n", "Total files checked  :".bold().cyan(), total.to_string().bold().white()));
+                output.push_str(&format!("{} {}\n", "Matches              :".bold().green(), matches.to_string().bold().green()));
+                output.push_str(&format!("{} {}\n", "Differences          :".bold().yellow(), diffs.to_string().bold().yellow()));
+                output.push_str(&format!("{} {}\n", "Missing in Folder2   :".bold().red(), missing.to_string().bold().red()));
+                output.push_str(&format!("{} {}\n", "Extra in Folder2     :".bold().magenta(), extra.to_string().bold().magenta()));
+                output.push_str(&format!("{} {:.2?}\n", "Time taken           :".bold().blue(), elapsed));
+                output.push_str(&format!("{}\n", "==============================================".bright_blue()));
+
+                fs::create_dir_all(&output_folder)?;
+                let report_path = output_folder.join("report.txt");
+                let mut file = File::create(report_path)?;
+                file.write_all(output.as_bytes())?;
+            } else {
+                println!("{}", "==============================================".bright_blue());
+                println!("   Folder File Comparison Utility");
+                println!("{}", "==============================================".bright_blue());
+
+                for res in &results {
+                    let status_colored = match res.status.as_str() {
+                        "MATCH" => "MATCH".green(),
+                        "DIFF" => "DIFF".yellow(),
+                        "MISSING" => "MISSING".red(),
+                        "EXTRA" => "EXTRA".cyan(),
+                        _ => res.status.normal(),
+                    };
+
+                    println!(
+                        "[{}]  {}",
+                        status_colored,
+                        res.file.display().to_string().color(color_for_file(res.file.to_str().unwrap()))
+                    );
+
+                    if res.status == "DIFF" {
+                        if let (Some(h1), Some(h2)) = (&res.hash1, &res.hash2) {
+                            println!("    {}: {}", "folder1".dimmed(), format_hashres(h1, algo));
+                            println!("    {}: {}", "folder2".dimmed(), format_hashres(h2, algo));
+                        }
+                    } else if res.status == "MATCH" {
+                        if let Some(h1) = &res.hash1 {
+                            println!("    {}: {}", "in_both".dimmed(), format_hashres(h1, algo));
+                        }
+                    }
+                    println!();
+                }
+
+                println!("{}", "-----------------------------------------------".bright_blue());
+                let total_width = 47; // same width as your dash lines
+                let title = "Summary";
+                let padding = (total_width - title.len()) / 2;
+                println!("{:padding$}{}", "", title.bold().white().on_bright_black(), padding = padding);
+                println!("{}", "-----------------------------------------------".bright_blue());
+                println!("{} {}", "Total files checked  :".bold().cyan(), total.to_string().bold().white());
+                println!("{} {}", "Matches              :".bold().green(), matches.to_string().bold().green());
+                println!("{} {}", "Differences          :".bold().yellow(), diffs.to_string().bold().yellow());
+                println!("{} {}", "Missing in Folder2   :".bold().red(), missing.to_string().bold().red());
+                println!("{} {}", "Extra in Folder2     :".bold().magenta(), extra.to_string().bold().magenta());
+                println!("{} {:.2?}", "Time taken           :".bold().blue(), elapsed);
+                println!("{}", "==============================================".bright_blue());
+            }
         }
         OutputFormat::Json => {
             let json_summary = serde_json::json!({
@@ -317,17 +375,17 @@ fn main() -> io::Result<()> {
                 "results": results,
             });
 
-            output = serde_json::to_string_pretty(&json_output)?;
-        }
-    }
+            let output = serde_json::to_string_pretty(&json_output)?;
 
-    if let Some(output_folder) = output_folder {
-        fs::create_dir_all(&output_folder)?;
-        let report_path = output_folder.join(if output_format == OutputFormat::Json { "report.json" } else { "report.txt" });
-        let mut file = File::create(report_path)?;
-        file.write_all(output.as_bytes())?;
-    } else {
-        println!("{}", output);
+            if let Some(output_folder) = output_folder {
+                fs::create_dir_all(&output_folder)?;
+                let report_path = output_folder.join("report.json");
+                let mut file = File::create(report_path)?;
+                file.write_all(output.as_bytes())?;
+            } else {
+                println!("{}", output);
+            }
+        }
     }
 
     Ok(())
