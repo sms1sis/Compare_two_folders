@@ -72,7 +72,7 @@ cargo run -- test_folder1 test_folder2 --mode realtime
 
 ## 🖥️ Example Output (Realtime Mode)
 
-```
+```bash
 ===============================================
    Folder Comparison Utility (Real-time Mode)
 ===============================================
