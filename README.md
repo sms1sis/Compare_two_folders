@@ -1,51 +1,19 @@
 # Folder File Comparison Utility
 
-A command-line utility for comparing the files in two folders, implemented in both **C** and **Rust**.  
-The tool compares files by their names and SHA256 hashes, reporting matches, differences, missing, and extra files.  
-The output includes a colorized summary with perfectly aligned results.
+A command-line utility for comparing the files in two folders, implemented in **Rust**.   
+The tool compares files by their names and **blake3** **sha256**  hashes, reporting matches, differences, missing, and extra files.  
 
 ---
 
 ## ✨ Features
 
 - **Compare two directories**: Checks for files with the same name in both folders.
-- **SHA256 hash comparison**: Compares file contents securely using SHA256.
+- **blake3 and  sha256 hash comparison**: Compares file contents securely using blake3, sha256 or both.
 - **Colorized terminal output**: Easy-to-read, informative, and visually appealing output.
 - **Summary section**: Lists total files, matches, differences, missing, and extra files, with aligned formatting.
-- **Written in both C and Rust**: Choose your preferred language!
-
 ---
 
 ## ⚙️ Build & Usage
-
-### C Version
-
-#### 📦 Requirements
-
-- GCC or Clang
-- OpenSSL development libraries (`libssl-dev` on Debian/Ubuntu)
-
-#### ⚙️ Build
-
-```sh
-make
-```
-
-#### 🚀 Usage
-
-```sh
-./compare_folders_c <folder1> <folder2>
-```
-
-#### 📝 Example
-
-```sh
-./compare_folders_c ./dirA ./dirB
-```
-
----
-
-### 🦀 Rust Version
 
 #### 📦 Requirements
 
@@ -61,9 +29,14 @@ cargo build --release
 #### 🚀 Usage
 
 ```sh
-cargo run -- <folder1> <folder2>
-# Or after building:
-./target/release/folder_compare <folder1> <folder2>
+# from rust/ folder
+cargo build --release
+# run with both hashes (default)
+cargo run -- ./dirA ./dirB
+# run with only BLAKE3
+cargo run -- ./dirA ./dirB --algo=blake3
+# run with only SHA-256
+cargo run -- ./dirA ./dirB --algo=sha256
 ```
 
 #### 📝 Example
