@@ -2,6 +2,7 @@
 name = "compare_folders"
 version = "1.0.0"
 edition = "2024"
+authors = ["sms1sis"]
 
 [dependencies]
 sha2 = "0.10"
