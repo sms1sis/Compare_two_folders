@@ -1,4 +1,4 @@
-'''# Folder File Comparison Utility
+## Folder File Comparison Utility
 
 A command-line utility for comparing the files in two folders, implemented in **Rust**.   
 The tool compares files by their names and **blake3** **sha256**  hashes, reporting matches, differences, missing, and extra files.  
@@ -106,4 +106,3 @@ Time taken           : 1.23s
 
 Pull requests and improvements are welcome! Please open an issue first if you wish to discuss major changes.
 
-'''
