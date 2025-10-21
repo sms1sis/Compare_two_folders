@@ -193,14 +193,14 @@ fn main() -> io::Result<()> {
         }
     }
 
-    println!("-----------------------------------------------");
-    println!(" Summary");
-    println!("-----------------------------------------------");
-    println!("Total files checked  : {}", total);
-    println!("Matches              : {}", matches);
-    println!("Differences          : {}", diffs);
-    println!("Missing in Folder2   : {}", missing);
-    println!("Extra in Folder2     : {}", extra);
+    println!("{}", "-----------------------------------------------".bright_blue());
+    println!("{}", " Summary ".bold().white().on_bright_black());
+    println!("{}", "-----------------------------------------------".bright_blue());
+    println!("{} {}", "Total files checked  :".bold().cyan(), total.to_string().bold().white());
+    println!("{} {}", "Matches              :".bold().green(), matches.to_string().bold().green());
+    println!("{} {}", "Differences          :".bold().yellow(), diffs.to_string().bold().yellow());
+    println!("{} {}", "Missing in Folder2   :".bold().red(), missing.to_string().bold().red());
+    println!("{} {}", "Extra in Folder2     :".bold().magenta(), extra.to_string().bold().magenta());
     println!("{}", "==============================================".bright_blue());
 
     Ok(())
