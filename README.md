@@ -8,7 +8,7 @@ The tool compares files by their names and hashes, reporting matches, difference
 ## ✨ Features
 
 - **Compare two directories**: Checks for files with the same name in both folders.
-- **Flexible Hashing**: Compares file contents securely using `Sha256`, `Blake3`, or `Both` algorithms.
+- **Flexible Hashing**: Compares file contents securely using `Sha256`, `Blake3`, or `Both` algorithms (default blake3).
 - **Comparison Modes**:
     - `Batch` (default): Processes files in parallel for maximum speed, generating a comprehensive report at the end.
     - `Realtime`: Processes files sequentially, providing immediate output as each file is compared.
@@ -72,7 +72,7 @@ cargo run -- test_folder1 test_folder2 --mode realtime
 
 ## 🖥️ Example Output (Realtime Mode)
 
-```bash
+```
 ===============================================
    Folder Comparison Utility (Real-time Mode)
 ===============================================
@@ -87,19 +87,23 @@ cargo run -- test_folder1 test_folder2 --mode realtime
 
 [EXTRA]  unique2.txt
 
-╔═══════════════════════════════════════════════╗
-║                    Summary                    ║
-╠═══════════════════════════════════════════════╣
-║  Mode                   : Realtime            ║
-║  Algorithm              : Both                ║
-║  Total files checked    : 4                   ║
-║  Matches                : 1                   ║
-║  Differences            : 1                   ║
-║  Missing in Folder2     : 1                   ║
-║  Extra in Folder2       : 1                   ║
-║  Time taken             : 5.23ms              ║
-╚═══════════════════════════════════════════════╝
+╔══════════════════════════════════════════════╗
+║                    Summary                           ║
+╠══════════════════════════════════════════════╣
+║  Mode                   : Realtime                   ║
+║  Algorithm              : Both                       ║
+║  Total files checked    : 4                          ║
+║  Matches                : 1                          ║
+║  Differences            : 1                          ║
+║  Missing in Folder2     : 1                          ║
+║  Extra in Folder2       : 1                          ║
+║  Time taken             : 5.23ms                     ║
+╚══════════════════════════════════════════════╝
 ```
+
+## ⚡Note:
+- For fastest speed use default setup. **blake3+batch**
+- If you don't pass any flag it will fall back to default 
 
 ---
 
