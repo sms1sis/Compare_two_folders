@@ -1,0 +1,22 @@
+[package]
+name = "cmp-folders"
+version = "0.1.0"
+edition = "2024"
+authors = ["sms1sis"]
+
+[dependencies]
+sha2 = "0.10"
+blake3 = "1.3"
+colored = "2.0"
+walkdir = "2.3"
+serde = { version = "1.0", features = ["derive"] }
+clap = { version = "4.0", features = ["derive"] }
+rayon = "1.5"
+anyhow = "1.0"
+serde_json = "1.0"
+
+[profile.release]
+opt-level = 3              # (Default, but good to be explicit)
+lto = "fat"                # Maximum whole-program optimization
+codegen-units = 1          # Maximum code optimization at the cost of compile time
+strip = "symbols"          # Reduce binary size
