@@ -1,9 +1,11 @@
 use std::env;
-use std::fs::File;
-use std::io::{self, Read};
+use std::fs::{self, File};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use colored::*;
+use serde::{Serialize};
 use sha2::{Digest, Sha256};
 use blake3;
 
@@ -28,12 +30,36 @@ impl std::str::FromStr for HashAlgo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputFormat {
+    Txt,
+    Json,
+}
+
+impl std::str::FromStr for OutputFormat {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "txt" => Ok(OutputFormat::Txt),
+            "json" => Ok(OutputFormat::Json),
+            other => Err(format!("unknown format `{}`. allowed: txt, json", other)),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct HashResult {
     sha256: Option<String>,
     blake3: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct ComparisonResult {
+    file: PathBuf,
+    status: String,
+    hash1: Option<HashResult>,
+    hash2: Option<HashResult>,
+}
 // Color palette to cycle through for file names
 const FILE_COLORS: [Color; 8] = [
     Color::Cyan,
@@ -82,7 +108,7 @@ fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
 
     let sha256 = sha256_hasher.map(|h| {
         let result = h.finalize();
-        hex::encode(result) // hex crate not necessary if you prefer format!("{:x}", ...)
+        hex::encode(result) // hex crate not necessary if you prefer format("{:x}", ...)
     });
 
     let blake3 = blake3_hasher.map(|h| {
@@ -98,7 +124,8 @@ fn format_hashres(h: &HashResult, algo: HashAlgo) -> String {
         HashAlgo::Sha256 => h.sha256.as_ref().unwrap().clone(),
         HashAlgo::Blake3 => h.blake3.as_ref().unwrap().clone(),
         HashAlgo::Both => format!(
-            "sha256:{} blake3:{}",
+            "sha256:{}
+ blake3:{}",
             h.sha256.as_ref().unwrap(),
             h.blake3.as_ref().unwrap()
         ),
@@ -117,21 +144,38 @@ fn collect_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
 }
 
 fn main() -> io::Result<()> {
-    // Simple CLI parsing: <dir1> <dir2> [--algo=<sha256|blake3|both>]
+    let start_time = Instant::now();
+    // Simple CLI parsing: <dir1> <dir2> [--algo=<sha256|blake3|both>] [--output-folder=<path>] [--output-format=<txt|json>]
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: {} <folder1> <folder2> [--algo=sha256|blake3|both]", args[0]);
+        eprintln!(
+            "Usage: {} <folder1> <folder2> [--algo=sha256|blake3|both] [--output-folder=<path>] [--output-format=<txt|json>]",
+            args[0]
+        );
         std::process::exit(2);
     }
     let folder1 = Path::new(&args[1]);
     let folder2 = Path::new(&args[2]);
 
-    // parse optional algo flag
+    // parse optional flags
     let mut algo = HashAlgo::Both;
+    let mut output_folder: Option<PathBuf> = None;
+    let mut output_format = OutputFormat::Txt;
+
     for a in &args[3..] {
         if let Some(rest) = a.strip_prefix("--algo=") {
             match rest.parse::<HashAlgo>() {
                 Ok(parsed) => algo = parsed,
+                Err(e) => {
+                    eprintln!("{}", e);
+                    std::process::exit(2);
+                }
+            }
+        } else if let Some(rest) = a.strip_prefix("--output-folder=") {
+            output_folder = Some(PathBuf::from(rest));
+        } else if let Some(rest) = a.strip_prefix("--output-format=") {
+            match rest.parse::<OutputFormat>() {
+                Ok(parsed) => output_format = parsed,
                 Err(e) => {
                     eprintln!("{}", e);
                     std::process::exit(2);
@@ -161,6 +205,7 @@ fn main() -> io::Result<()> {
     }
 
     // Compare keys (filenames)
+    let mut results: Vec<ComparisonResult> = Vec::new();
     let mut total = 0usize;
     let mut matches = 0usize;
     let mut diffs = 0usize;
@@ -172,18 +217,13 @@ fn main() -> io::Result<()> {
     all_keys.sort();
     all_keys.dedup();
 
-    println!("{}", "==============================================".bright_blue());
-    println!("   Folder File Comparison Utility");
-    println!("{}", "==============================================".bright_blue());
-
     for key in all_keys {
         total += 1;
         let in1 = map1.get(key);
         let in2 = map2.get(key);
 
-        match (in1, in2) {
+        let (status, h1, h2) = match (in1, in2) {
             (Some(h1), Some(h2)) => {
-                // decide match logic: here, match only if the requested hashes equal
                 let is_match = match algo {
                     HashAlgo::Sha256 => h1.sha256 == h2.sha256,
                     HashAlgo::Blake3 => h1.blake3 == h2.blake3,
@@ -191,56 +231,104 @@ fn main() -> io::Result<()> {
                 };
                 if is_match {
                     matches += 1;
-                    println!(
-                        "[{}]  {}",
-                        "MATCH".green(),
-                        key.display().to_string().color(color_for_file(key.to_str().unwrap())).bold()
-                    );
+                    ("MATCH", Some(h1), Some(h2))
                 } else {
                     diffs += 1;
-                    println!(
-                        "[{}]   {}",
-                        "DIFF".yellow(),
-                        key.display().to_string().color(color_for_file(key.to_str().unwrap())).bold()
-                    );
-                    println!("    {}: {}", "folder1".dimmed(), format_hashres(h1, algo));
-                    println!("    {}: {}", "folder2".dimmed(), format_hashres(h2, algo));
+                    ("DIFF", Some(h1), Some(h2))
                 }
             }
-            (Some(_), None) => {
+            (Some(h1), None) => {
                 missing += 1;
-                println!(
-                    "[{}] {}",
-                    "MISSING".red(),
-                    key.display().to_string().color(color_for_file(key.to_str().unwrap())).bold()
-                );
+                ("MISSING", Some(h1), None)
             }
-            (None, Some(_)) => {
+            (None, Some(h2)) => {
                 extra += 1;
-                println!(
-                    "[{}] {}",
-                    "EXTRA".cyan(),
-                    key.display().to_string().color(color_for_file(key.to_str().unwrap())).bold()
-                );
+                ("EXTRA", None, Some(h2))
             }
-            _ => {}
+            _ => continue, // Should not happen
+        };
+
+        results.push(ComparisonResult {
+            file: key.clone(),
+            status: status.to_string(),
+            hash1: h1.map(|h| HashResult { sha256: h.sha256.clone(), blake3: h.blake3.clone() }),
+            hash2: h2.map(|h| HashResult { sha256: h.sha256.clone(), blake3: h.blake3.clone() }),
+        });
+    }
+
+    let elapsed = start_time.elapsed();
+    let mut output = String::new();
+
+    match output_format {
+        OutputFormat::Txt => {
+            output.push_str(&format!("{}\n", "==============================================".bright_blue()));
+            output.push_str("   Folder File Comparison Utility\n");
+            output.push_str(&format!("{}\n", "==============================================".bright_blue()));
+
+            for res in &results {
+                let status_colored = match res.status.as_str() {
+                    "MATCH" => "MATCH".green(),
+                    "DIFF" => "DIFF".yellow(),
+                    "MISSING" => "MISSING".red(),
+                    "EXTRA" => "EXTRA".cyan(),
+                    _ => res.status.normal(),
+                };
+
+                output.push_str(&format!(
+                    "[{}]  {}\n",
+                    status_colored,
+                    res.file.display().to_string().color(color_for_file(res.file.to_str().unwrap()))
+                ));
+
+                if res.status == "DIFF" {
+                    if let (Some(h1), Some(h2)) = (&res.hash1, &res.hash2) {
+                        output.push_str(&format!("    {}: {}\n", "folder1".dimmed(), format_hashres(h1, algo)));
+                        output.push_str(&format!("    {}: {}\n", "folder2".dimmed(), format_hashres(h2, algo)));
+                    }
+                }
+            }
+
+            output.push_str(&format!("{}\n", "-----------------------------------------------".bright_blue()));
+            let total_width = 47; // same width as your dash lines
+            let title = "Summary";
+            let padding = (total_width - title.len()) / 2;
+            output.push_str(&format!("{:padding$}{}\n", "", title.bold().white().on_bright_black(), padding = padding));
+            output.push_str(&format!("{}\n", "-----------------------------------------------".bright_blue()));
+            output.push_str(&format!("{} {}\n", "Total files checked  :".bold().cyan(), total.to_string().bold().white()));
+            output.push_str(&format!("{} {}\n", "Matches              :".bold().green(), matches.to_string().bold().green()));
+            output.push_str(&format!("{} {}\n", "Differences          :".bold().yellow(), diffs.to_string().bold().yellow()));
+            output.push_str(&format!("{} {}\n", "Missing in Folder2   :".bold().red(), missing.to_string().bold().red()));
+            output.push_str(&format!("{} {}\n", "Extra in Folder2     :".bold().magenta(), extra.to_string().bold().magenta()));
+            output.push_str(&format!("{} {:.2?}\n", "Time taken           :".bold().blue(), elapsed));
+            output.push_str(&format!("{}\n", "==============================================".bright_blue()));
+        }
+        OutputFormat::Json => {
+            let json_summary = serde_json::json!({
+                "total_files_checked": total,
+                "matches": matches,
+                "differences": diffs,
+                "missing_in_folder2": missing,
+                "extra_in_folder2": extra,
+                "time_taken": format!("{:.2?}", elapsed),
+            });
+
+            let json_output = serde_json::json!({
+                "summary": json_summary,
+                "results": results,
+            });
+
+            output = serde_json::to_string_pretty(&json_output)?;
         }
     }
 
-    println!("{}", "-----------------------------------------------".bright_blue());
-    let total_width = 47; // same width as your dash lines
-    let title = "Summary";
-    let padding = (total_width - title.len()) / 2;
-    // Print spaces first (no background), then title with background
-    print!("{:padding$}", "", padding = padding);
-    println!("{}", title.bold().white().on_bright_black());
-    println!("{}", "-----------------------------------------------".bright_blue());
-    println!("{} {}", "Total files checked  :".bold().cyan(), total.to_string().bold().white());
-    println!("{} {}", "Matches              :".bold().green(), matches.to_string().bold().green());
-    println!("{} {}", "Differences          :".bold().yellow(), diffs.to_string().bold().yellow());
-    println!("{} {}", "Missing in Folder2   :".bold().red(), missing.to_string().bold().red());
-    println!("{} {}", "Extra in Folder2     :".bold().magenta(), extra.to_string().bold().magenta());
-    println!("{}", "==============================================".bright_blue());
+    if let Some(output_folder) = output_folder {
+        fs::create_dir_all(&output_folder)?;
+        let report_path = output_folder.join(if output_format == OutputFormat::Json { "report.json" } else { "report.txt" });
+        let mut file = File::create(report_path)?;
+        file.write_all(output.as_bytes())?;
+    } else {
+        println!("{}", output);
+    }
 
     Ok(())
 }
