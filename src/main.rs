@@ -34,6 +34,24 @@ struct HashResult {
     blake3: Option<String>,
 }
 
+// Color palette to cycle through for file names
+const FILE_COLORS: [Color; 8] = [
+    Color::Cyan,
+    Color::Green,
+    Color::Yellow,
+    Color::Magenta,
+    Color::BrightCyan,
+    Color::BrightGreen,
+    Color::BrightYellow,
+    Color::BrightMagenta,
+];
+
+// Helper to pick a color for a file based on its hash or index
+fn color_for_file(name: &str) -> Color {
+    let hash = name.bytes().fold(0usize, |acc, b| acc.wrapping_add(b as usize));
+    FILE_COLORS[hash % FILE_COLORS.len()]
+}
+
 fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
     // Open file
     let mut f = File::open(path)?;
@@ -173,28 +191,49 @@ fn main() -> io::Result<()> {
                 };
                 if is_match {
                     matches += 1;
-                    println!("[{}]  {}", "MATCH".green(), key.display());
+                    println!(
+                        "[{}]  {}",
+                        "MATCH".green(),
+                        key.display().to_string().color(color_for_file(key.to_str().unwrap())).bold()
+                    );
                 } else {
                     diffs += 1;
-                    println!("[{}]   {}", "DIFF".yellow(), key.display());
+                    println!(
+                        "[{}]   {}",
+                        "DIFF".yellow(),
+                        key.display().to_string().color(color_for_file(key.to_str().unwrap())).bold()
+                    );
                     println!("    {}: {}", "folder1".dimmed(), format_hashres(h1, algo));
                     println!("    {}: {}", "folder2".dimmed(), format_hashres(h2, algo));
                 }
             }
             (Some(_), None) => {
                 missing += 1;
-                println!("[{}] {}", "MISSING".red(), key.display());
+                println!(
+                    "[{}] {}",
+                    "MISSING".red(),
+                    key.display().to_string().color(color_for_file(key.to_str().unwrap())).bold()
+                );
             }
             (None, Some(_)) => {
                 extra += 1;
-                println!("[{}] {}", "EXTRA".cyan(), key.display());
+                println!(
+                    "[{}] {}",
+                    "EXTRA".cyan(),
+                    key.display().to_string().color(color_for_file(key.to_str().unwrap())).bold()
+                );
             }
             _ => {}
         }
     }
 
     println!("{}", "-----------------------------------------------".bright_blue());
-    println!("{}", " Summary ".bold().white().on_bright_black());
+    let total_width = 47; // same width as your dash lines
+    let title = "Summary";
+    let padding = (total_width - title.len()) / 2;
+    // Print spaces first (no background), then title with background
+    print!("{:padding$}", "", padding = padding);
+    println!("{}", title.bold().white().on_bright_black());
     println!("{}", "-----------------------------------------------".bright_blue());
     println!("{} {}", "Total files checked  :".bold().cyan(), total.to_string().bold().white());
     println!("{} {}", "Matches              :".bold().green(), matches.to_string().bold().green());

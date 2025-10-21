@@ -80,7 +80,10 @@ Extra in Folder2     : 1
 ## 🙌 Credit
 
 - [OpenSSL](https://www.openssl.org/) for C SHA256 implementation
-- [`sha2`](https://crates.io/crates/sha2), [`colored`](https://crates.io/crates/colored), and [`terminal_size`](https://crates.io/crates/terminal_size) Rust crates
+- [`sha2`](https://crates.io/crates/sha2)
+- [`blake3`](https://crates.io/crates/blake)
+- [`colored`](https://crates.io/crates/colored)
+- [`terminal_size`](https://crates.io/crates/terminal_size)
 
 ---
 
