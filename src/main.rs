@@ -7,6 +7,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use colored::*;
+use indicatif::{ProgressBar, ProgressStyle, ParallelProgressIterator};
 use rayon::prelude::*;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -35,25 +36,25 @@ enum Mode {
 }
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None, help_template = "{before-help}{name} {version}\n{author-with-newline}{about-with-newline}\n{usage-heading} {usage} \n\n {all-args} {after-help}")]
 struct Config {
     /// First folder to compare
     folder1: PathBuf,
     /// Second folder to compare
     folder2: PathBuf,
 
-    #[arg(long, value_enum, default_value_t = Mode::Batch)]
+    #[arg(short, long, value_enum, default_value_t = Mode::Batch)]
     mode: Mode,
 
-    #[arg(long, value_enum, default_value_t = HashAlgo::Blake3)]
+    #[arg(short, long, value_enum, default_value_t = HashAlgo::Blake3)]
     algo: HashAlgo,
 
     /// (Batch mode only) Folder to save the report file
-    #[arg(long)]
+    #[arg(short, long)]
     output_folder: Option<PathBuf>,
 
     /// (Batch mode only) Format for the output report
-    #[arg(long, value_enum, default_value_t = OutputFormat::Txt)]
+    #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Txt)]
     output_format: OutputFormat,
 }
 
@@ -211,14 +212,24 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
     let files1 = files1?;
     let files2 = files2?;
 
-    let map2_hashes = create_hash_map(&files2, &config.folder2, config.algo)?;
+    let pb = ProgressBar::new((files1.len() + files2.len()) as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")?
+            .progress_chars("#>-"),
+    );
+
+    let map2_hashes = create_hash_map(&files2, &config.folder2, config.algo, &pb)?;
 
     let mut all_results = compare_files_batch(
         &files1,
         &config.folder1,
         &map2_hashes,
         config.algo,
+        &pb,
     )?;
+
+    pb.finish_with_message("Comparison complete");
 
     let (matches, diffs, missing) = count_results(&all_results);
     let extra = map2_hashes.len() - (matches + diffs);
@@ -264,9 +275,11 @@ fn create_hash_map(
     files: &[PathBuf],
     base_dir: &Path,
     algo: HashAlgo,
+    pb: &ProgressBar,
 ) -> Result<HashMap<PathBuf, HashResult>> {
     let hashes = files
         .par_iter()
+        .progress_with(pb.clone())
         .map(|f| {
             let rel_path = f
                 .strip_prefix(base_dir)
@@ -283,9 +296,11 @@ fn compare_files_batch(
     folder1: &Path,
     map2_hashes: &HashMap<PathBuf, HashResult>,
     algo: HashAlgo,
+    pb: &ProgressBar,
 ) -> Result<Vec<ComparisonResult>> {
     files1
         .par_iter()
+        .progress_with(pb.clone())
         .map(|f1_abs| {
             let rel_path = f1_abs
                 .strip_prefix(folder1)

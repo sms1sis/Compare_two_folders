@@ -12,6 +12,7 @@ The tool compares files by their names and hashes, reporting matches, difference
 - **Comparison Modes**:
     - `Batch` (default): Processes files in parallel for maximum speed, generating a comprehensive report at the end.
     - `Realtime`: Processes files sequentially, providing immediate output as each file is compared.
+- **Progress Bar**: Shows a progress bar in `Batch` mode.
 - **Colorized Terminal Output**: Easy-to-read, informative, and visually appealing output for both real-time feedback and final reports.
 - **Enhanced Summary Section**: A clear, colorized, and perfectly aligned summary box detailing total files, matches, differences, missing, extra files, mode, algorithm used, and time taken.
 - **JSON and TXT Output**: Option to save the comparison report as a `json` or `txt` file.
@@ -41,25 +42,25 @@ cargo build --release
 ./target/release/cmp-folders ./dirA ./dirB
 
 # Run in Realtime mode (sequential output)
-./target/release/cmp-folders ./dirA ./dirB --mode realtime
+./target/release/cmp-folders ./dirA ./dirB -m realtime
 
 # Run in Batch mode (parallel processing, report at end)
-./target/release/cmp-folders ./dirA ./dirB --mode batch
+./target/release/cmp-folders ./dirA ./dirB -m batch
 
 # Run with only BLAKE3 algorithm (default)
-./target/release/cmp-folders ./dirA ./dirB --algo blake3
+./target/release/cmp-folders ./dirA ./dirB -a blake3
 
 # Run with only SHA-256 algorithm
-./target/release/cmp-folders ./dirA ./dirB --algo sha256
+./target/release/cmp-folders ./dirA ./dirB -a sha256
 
 # Run with both algorithms
-./target/release/cmp-folders ./dirA ./dirB --algo both
+./target/release/cmp-folders ./dirA ./dirB -a both
 
 # Save report as a text file (Batch mode only)
-./target/release/cmp-folders ./dirA ./dirB --output-folder=./reports --output-format=txt
+./target/release/cmp-folders ./dirA ./dirB -o=./reports -f=txt
 
 # Save report as a JSON file (Batch mode only)
-./target/release/cmp-folders ./dirA ./dirB --output-folder=./reports --output-format=json
+./target/release/cmp-folders ./dirA ./dirB -o=./reports -f=json
 ```
 
 #### 📝 Example
