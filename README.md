@@ -1,4 +1,4 @@
-## Folder File Comparison Utility
+## Folder File Comparison Utility (cmpf)
 
 A command-line utility for comparing the files in two folders, implemented in **Rust**.   
 The tool compares files by their names and hashes, reporting matches, differences, missing, and extra files. It offers flexible comparison modes and hashing algorithms.
@@ -38,35 +38,34 @@ cargo build --release
 # from rust/ folder
 cargo build --release
 
-# Run with default settings (Batch mode, Blake3 algorithm)
-./target/release/cmp-folders ./dirA ./dirB
+./target/release/cmpf ./dirA ./dirB
 
 # Run in Realtime mode (sequential output)
-./target/release/cmp-folders ./dirA ./dirB -m realtime
+./target/release/cmpf ./dirA ./dirB -m realtime
 
 # Run in Batch mode (parallel processing, report at end)
-./target/release/cmp-folders ./dirA ./dirB -m batch
+./target/release/cmpf ./dirA ./dirB -m batch
 
 # Run with only BLAKE3 algorithm (default)
-./target/release/cmp-folders ./dirA ./dirB -a blake3
+./target/release/cmpf ./dirA ./dirB -a blake3
 
 # Run with only SHA-256 algorithm
-./target/release/cmp-folders ./dirA ./dirB -a sha256
+./target/release/cmpf ./dirA ./dirB -a sha256
 
 # Run with both algorithms
-./target/release/cmp-folders ./dirA ./dirB -a both
+./target/release/cmpf ./dirA ./dirB -a both
 
 # Save report as a text file (Batch mode only)
-./target/release/cmp-folders ./dirA ./dirB -o=./reports -f=txt
+./target/release/cmpf ./dirA ./dirB -o=./reports -f=txt
 
 # Save report as a JSON file (Batch mode only)
-./target/release/cmp-folders ./dirA ./dirB -o=./reports -f=json
+./target/release/cmpf ./dirA ./dirB -o=./reports -f=json
 ```
 
 #### 📝 Example
 
 ```sh
-cargo run -- test_folder1 test_folder2 --mode realtime
+cargo run -- test_folder1 test_folder2 -m realtime
 ```
 
 ---
@@ -75,7 +74,7 @@ cargo run -- test_folder1 test_folder2 --mode realtime
 
 ```
 ===============================================
-   Folder Comparison Utility (Real-time Mode)
+   Folder Comparison Utility (cmpf - Real-time Mode)
 ===============================================
 [MATCH]  common.txt
     in_both: sha256:cd575532bfb6aa856c11dcdc1c68c99a0bf0fc5b42d575392ac07c950e9f426f blake3:5c8c5b280826a57d2f55c48aaa2fbf0b1703ddb44831958578549897da3563a3
