@@ -109,15 +109,7 @@ cargo run -- test_folder1 test_folder2 -m realtime
 
 ## 🙌 Credits
 
-- [`anyhow`](https://crates.io/crates/anyhow)
-- [`blake3`](https://crates.io/crates/blake3)
-- [`clap`](https://crates.io/crates/clap)
-- [`colored`](https://crates.io/crates/colored)
-- [`rayon`](https://crates.io/crates/rayon)
-- [`serde`](https://crates.io/crates/serde)
-- [`serde_json`](https://crates.io/crates/serde_json)
-- [`sha2`](https://crates.io/crates/sha2)
-- [`walkdir`](https://crates.io/crates/walkdir)
+- [`anyhow`](https://crates.io/crates/anyhow) - [`blake3`](https://crates.io/crates/blake3) - [`clap`](https://crates.io/crates/clap) - [`colored`](https://crates.io/crates/colored) - [`rayon`](https://crates.io/crates/rayon) - [`serde`](https://crates.io/crates/serde) - [`serde_json`](https://crates.io/crates/serde_json) - [`sha2`](https://crates.io/crates/sha2) - [`walkdir`](https://crates.io/crates/walkdir)
 
 ---
 
