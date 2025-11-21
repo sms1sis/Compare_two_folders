@@ -73,6 +73,9 @@ struct ComparisonResult {
 }
 
 fn main() -> Result<()> {
+    #[cfg(windows)]
+    colored::control::set_virtual_terminal(true).unwrap();
+    
     let start_time = Instant::now();
     let config = Config::parse();
 
