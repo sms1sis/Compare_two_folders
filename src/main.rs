@@ -110,9 +110,9 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
 
     for f1_abs in &files1 {
         let rel_path = f1_abs.strip_prefix(&config.folder1)?;
-        let f2_abs = config.folder2.join(rel_path);
 
-        if f2_abs.exists() {
+        if files2_relative.contains(rel_path) {
+            let f2_abs = config.folder2.join(rel_path); // f2_abs is needed for compute_hashes
             let h1 = compute_hashes(f1_abs, config.algo)?;
             let h2 = compute_hashes(&f2_abs, config.algo)?;
 
@@ -207,41 +207,113 @@ fn print_summary(
 //=============================================================================
 
 fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
+    // 1. Collect files from both directories in parallel
     let (files1, files2) = rayon::join(
         || collect_files(&config.folder1),
         || collect_files(&config.folder2),
     );
-
     let files1 = files1?;
     let files2 = files2?;
 
-    let pb = ProgressBar::new((files1.len() + files2.len()) as u64);
+    // Create maps from relative path -> absolute path for easy lookup later
+    let files1_map: HashMap<PathBuf, PathBuf> = files1
+        .par_iter()
+        .map(|f| (f.strip_prefix(&config.folder1).unwrap().to_path_buf(), f.clone()))
+        .collect();
+    let files2_map: HashMap<PathBuf, PathBuf> = files2
+        .par_iter()
+        .map(|f| (f.strip_prefix(&config.folder2).unwrap().to_path_buf(), f.clone()))
+        .collect();
+
+    let set1_paths: HashSet<PathBuf> = files1_map.keys().cloned().collect();
+    let set2_paths: HashSet<PathBuf> = files2_map.keys().cloned().collect();
+
+    // 2. Identify files that exist in both directories (potential MATCH or DIFF)
+    let common_paths: Vec<PathBuf> = set1_paths
+        .intersection(&set2_paths)
+        .cloned()
+        .collect();
+
+    let pb = ProgressBar::new(common_paths.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")?
             .progress_chars("#>-"),
     );
 
-    let map2_hashes = create_hash_map(&files2, &config.folder2, config.algo, &pb)?;
+    // 3. Process common files in parallel (the only ones that need hashing)
+    let mut all_results: Vec<ComparisonResult> = common_paths
+        .par_iter()
+        .progress_with(pb.clone())
+        .map(|rel_path| {
+            let f1_abs = files1_map.get(rel_path).unwrap();
+            let f2_abs = files2_map.get(rel_path).unwrap();
 
-    let mut all_results = compare_files_batch(
-        &files1,
-        &config.folder1,
-        &map2_hashes,
-        config.algo,
-        &pb,
-    )?;
+            // Compute hashes for the pair of files in parallel
+            let (h1_res, h2_res) = rayon::join(
+                || compute_hashes(f1_abs, config.algo),
+                || compute_hashes(f2_abs, config.algo),
+            );
+            let h1 = h1_res?;
+            let h2 = h2_res?;
+
+            let is_match = match config.algo {
+                HashAlgo::Sha256 => h1.sha256 == h2.sha256,
+                HashAlgo::Blake3 => h1.blake3 == h2.blake3,
+                HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
+            };
+
+            let status = if is_match { "MATCH" } else { "DIFF" };
+
+            Ok(ComparisonResult {
+                file: rel_path.clone(),
+                status: status.to_string(),
+                hash1: Some(h1),
+                hash2: Some(h2),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     pb.finish_with_message("Comparison complete");
 
-    let (matches, diffs, missing) = count_results(&all_results);
-    let extra = map2_hashes.len() - (matches + diffs);
-    let total = all_results.len() + extra;
+    // 4. Add MISSING files (from set1 but not set2) - no hashing needed
+    for rel_path in set1_paths.difference(&set2_paths) {
+        all_results.push(ComparisonResult {
+            file: rel_path.clone(),
+            status: "MISSING".to_string(),
+            hash1: None,
+            hash2: None,
+        });
+    }
 
-    handle_extra_files(&mut all_results, &map2_hashes, &files1, &config.folder1)?;
+    // 5. Add EXTRA files (from set2 but not set1) - no hashing needed
+    for rel_path in set2_paths.difference(&set1_paths) {
+        all_results.push(ComparisonResult {
+            file: rel_path.clone(),
+            status: "EXTRA".to_string(),
+            hash1: None,
+            hash2: None,
+        });
+    }
 
+    // 6. Count results
+    let mut matches = 0;
+    let mut diffs = 0;
+    let mut missing = 0;
+    let mut extra = 0;
+    for r in &all_results {
+        match r.status.as_str() {
+            "MATCH" => matches += 1,
+            "DIFF" => diffs += 1,
+            "MISSING" => missing += 1,
+            "EXTRA" => extra += 1,
+            _ => (),
+        }
+    }
+    let total = all_results.len();
     let elapsed = start_time.elapsed();
 
+    // 7. Generate report (no changes needed here)
     match config.output_format {
         OutputFormat::Txt => {
             let output = generate_text_report(
@@ -271,107 +343,6 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
         }
     }
 
-    Ok(())
-}
-
-fn create_hash_map(
-    files: &[PathBuf],
-    base_dir: &Path,
-    algo: HashAlgo,
-    pb: &ProgressBar,
-) -> Result<HashMap<PathBuf, HashResult>> {
-    let hashes = files
-        .par_iter()
-        .progress_with(pb.clone())
-        .map(|f| {
-            let rel_path = f
-                .strip_prefix(base_dir)
-                .with_context(|| format!("Failed to strip prefix '{:?}' from '{:?}'", base_dir, f))?;
-            let h = compute_hashes(f, algo)?;
-            Ok((rel_path.to_path_buf(), h))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(hashes.into_iter().collect())
-}
-
-fn compare_files_batch(
-    files1: &[PathBuf],
-    folder1: &Path,
-    map2_hashes: &HashMap<PathBuf, HashResult>,
-    algo: HashAlgo,
-    pb: &ProgressBar,
-) -> Result<Vec<ComparisonResult>> {
-    files1
-        .par_iter()
-        .progress_with(pb.clone())
-        .map(|f1_abs| {
-            let rel_path = f1_abs
-                .strip_prefix(folder1)
-                .with_context(|| format!("Failed to strip prefix '{:?}' from '{:?}'", folder1, f1_abs))?;
-            let h1 = compute_hashes(f1_abs, algo)?;
-
-            let (status, h2_result_option) = match map2_hashes.get(rel_path) {
-                Some(h2) => {
-                    let is_match = match algo {
-                        HashAlgo::Sha256 => h1.sha256 == h2.sha256,
-                        HashAlgo::Blake3 => h1.blake3 == h2.blake3,
-                        HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
-                    };
-                    if is_match {
-                        ("MATCH", Some(h2.clone()))
-                    } else {
-                        ("DIFF", Some(h2.clone()))
-                    }
-                }
-                None => ("MISSING", None),
-            };
-
-            Ok(ComparisonResult {
-                file: rel_path.to_path_buf(),
-                status: status.to_string(),
-                hash1: Some(h1),
-                hash2: h2_result_option,
-            })
-        })
-        .collect()
-}
-
-fn count_results(results: &[ComparisonResult]) -> (usize, usize, usize) {
-    results.iter().fold((0, 0, 0), |(m, d, s), r| {
-        match r.status.as_str() {
-            "MATCH" => (m + 1, d, s),
-            "DIFF" => (m, d + 1, s),
-            "MISSING" => (m, d, s + 1),
-            _ => (m, d, s),
-        }
-    })
-}
-
-fn handle_extra_files(
-    all_results: &mut Vec<ComparisonResult>,
-    map2_hashes: &HashMap<PathBuf, HashResult>,
-    files1: &[PathBuf],
-    folder1: &Path,
-) -> Result<()> {
-    let files1_set: HashSet<PathBuf> = files1
-        .par_iter()
-        .map(|f| {
-            Ok(f.strip_prefix(folder1)
-                .with_context(|| format!("Failed to strip prefix '{:?}' from '{:?}'", folder1, f))?
-                .to_path_buf())
-        })
-        .collect::<Result<_>>()?;
-
-    for (rel_path, h2) in map2_hashes {
-        if !files1_set.contains(rel_path) {
-            all_results.push(ComparisonResult {
-                file: rel_path.clone(),
-                status: "EXTRA".to_string(),
-                hash1: None,
-                hash2: Some(h2.clone()),
-            });
-        }
-    }
     Ok(())
 }
 
