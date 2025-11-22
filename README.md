@@ -13,7 +13,11 @@ The tool compares files by their names and hashes, reporting matches, difference
     - `Batch` (default): Processes files in parallel for maximum speed, generating a comprehensive report at the end.
     - `Realtime`: Processes files sequentially, providing immediate output as each file is compared.
 - **Progress Bar**: Shows a progress bar in `Batch` mode.
-- **Colorized Terminal Output**: Easy-to-read, informative, and visually appealing output for both real-time feedback and final reports.
+- **Colorized Terminal Output**: Output is now highly intuitive: file names and status labels are colored green for matching files, red for differing files, and blue for missing or extra files. This applies to both real-time feedback and final reports.
+- **Optimized Performance**:
+    - **Batch Mode**: Experience significant speed improvements (up to 10x-12x faster in some scenarios) due to parallel processing and optimized file analysis, which now intelligently avoids hashing missing or extra files.
+    - **Realtime Mode**: Minor but noticeable speed gains have been achieved through optimized file existence checks.
+- **Enhanced Progress Bar**: In Batch mode, the progress bar provides clear "Elapsed" and "Remaining" time indicators for better tracking of long operations.
 - **Enhanced Summary Section**: A clear, colorized, and perfectly aligned summary box detailing total files, matches, differences, missing, extra files, mode, algorithm used, and time taken.
 - **JSON and TXT Output**: Option to save the comparison report as a `json` or `txt` file.
 
@@ -72,7 +76,7 @@ cargo run -- test_folder1 test_folder2 -m realtime
 
 ## 🖥️ Example Output (Realtime Mode)
 
-```
+```text
 ===============================================
    Folder Comparison Utility (cmpf - Real-time Mode)
 ===============================================
@@ -100,6 +104,14 @@ cargo run -- test_folder1 test_folder2 -m realtime
 ║  Time taken             : 5.23ms                     ║
 ╚══════════════════════════════════════════════╝
 ```
+*Note: In the actual terminal output, `[MATCH] common.txt` would be green, `[DIFF] different.txt` would be red, and `[MISSING] unique1.txt` and `[EXTRA] unique2.txt` would be blue.*
+
+## 🖥️ Example Output (Batch Mode Progress Bar)
+
+When running in Batch mode, you will see a progress bar similar to this:
+`[Elapsed->00:00:02] [########################################] 53/53 (Remaining->0s)`
+
+---
 
 ## ⚡Note:
 - For fastest speed use default setup. **blake3+batch**

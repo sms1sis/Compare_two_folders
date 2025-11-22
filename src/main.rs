@@ -156,19 +156,19 @@ fn print_realtime_result(
     h2: Option<&HashResult>,
     algo: HashAlgo,
 ) -> Result<()> {
-    let status_colored = match status {
-        "MATCH" => "MATCH".green(),
-        "DIFF" => "DIFF".yellow(),
-        "MISSING" => "MISSING".red(),
-        "EXTRA" => "EXTRA".cyan(),
-        _ => status.normal(),
+    let (status_colored, file_color) = match status {
+        "MATCH" => ("MATCH".green(), Color::Green),
+        "DIFF" => ("DIFF".red(), Color::Red),
+        "MISSING" => ("MISSING".blue(), Color::Blue),
+        "EXTRA" => ("EXTRA".blue(), Color::Blue),
+        _ => (status.normal(), Color::White),
     };
 
     let file_name = file.to_str().context("Invalid file name")?;
     println!(
         "[{}]  {}",
         status_colored,
-        file_name.color(color_for_file(file_name))
+        file_name.color(file_color)
     );
 
     if status == "DIFF" {
@@ -237,8 +237,8 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
     let pb = ProgressBar::new(common_paths.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")?
-            .progress_chars("#>-"),
+            .template("{spinner:.green} [Elapsed->{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} (Remaining->{eta})")?
+            .progress_chars("#>- ")
     );
 
     // 3. Process common files in parallel (the only ones that need hashing)
@@ -363,41 +363,36 @@ fn generate_text_report(
         println!("{}", "==============================================".bright_blue());
 
     for result in results {
-        let status_colored = match result.status.as_str() {
-            "MATCH" => "MATCH".green(),
-            "DIFF" => "DIFF".yellow(),
-            "MISSING" => "MISSING".red(),
-            "EXTRA" => "EXTRA".cyan(),
-            _ => result.status.as_str().normal(),
+        let (status_colored, file_color) = match result.status.as_str() {
+            "MATCH" => ("MATCH".green(), Color::Green),
+            "DIFF" => ("DIFF".red(), Color::Red),
+            "MISSING" => ("MISSING".blue(), Color::Blue),
+            "EXTRA" => ("EXTRA".blue(), Color::Blue),
+            _ => (result.status.as_str().normal(), Color::White),
         };
 
         let file_name = result.file.to_str().context("Invalid file name")?;
         let line = format!(
-            "[{}]  {}
-",
+            "[{}]  {}\n",
             status_colored,
-            file_name.color(color_for_file(file_name))
+            file_name.color(file_color)
         );
         output.push_str(&line);
 
         if result.status == "DIFF" {
             if let (Some(h1), Some(h2)) = (&result.hash1, &result.hash2) {
-                let line1 = format!("    {}: {}
-", "folder1".dimmed(), format_hashres(h1, algo)?);
-                let line2 = format!("    {}: {}
-", "folder2".dimmed(), format_hashres(h2, algo)?);
+                let line1 = format!("    {}: {}\n", "folder1".dimmed(), format_hashres(h1, algo)?);
+                let line2 = format!("    {}: {}\n", "folder2".dimmed(), format_hashres(h2, algo)?);
                 output.push_str(&line1);
                 output.push_str(&line2);
             }
         } else if result.status == "MATCH" {
             if let Some(h1) = &result.hash1 {
-                let line = format!("    {}: {}
-", "in_both".dimmed(), format_hashres(h1, algo)?);
+                let line = format!("    {}: {}\n", "in_both".dimmed(), format_hashres(h1, algo)?);
                 output.push_str(&line);
             }
         }
-        output.push_str("
-");
+        output.push_str("\n");
     }
 
     let summary_text = generate_summary_text(total, matches, diffs, missing, extra, elapsed, config);
@@ -566,25 +561,10 @@ fn format_hashres(h: &HashResult, algo: HashAlgo) -> Result<String> {
         HashAlgo::Sha256 => Ok(h.sha256.as_ref().context("SHA256 hash not computed")?.clone()),
         HashAlgo::Blake3 => Ok(h.blake3.as_ref().context("BLAKE3 hash not computed")?.clone()),
         HashAlgo::Both => Ok(format!(
-            "sha256:{} blake3:{}",
+            "sha256:{}
+            blake3:{}",
             h.sha256.as_ref().context("SHA256 hash not computed")?,
             h.blake3.as_ref().context("BLAKE3 hash not computed")?
         )),
     }
-}
-
-const FILE_COLORS: [Color; 8] = [
-    Color::Cyan,
-    Color::Green,
-    Color::Yellow,
-    Color::Magenta,
-    Color::BrightCyan,
-    Color::BrightGreen,
-    Color::BrightYellow,
-    Color::BrightMagenta,
-];
-
-fn color_for_file(name: &str) -> Color {
-    let hash = name.bytes().fold(0usize, |acc, b| acc.wrapping_add(b as usize));
-    FILE_COLORS[hash % FILE_COLORS.len()]
 }
