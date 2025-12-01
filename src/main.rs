@@ -56,6 +56,14 @@ struct Config {
     /// (Batch mode only) Format for the output report
     #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Txt)]
     output_format: OutputFormat,
+
+    /// Enable file comparison in subfolders
+    #[arg(short, long, default_value_t = false)]
+    subfolders: bool,
+
+    /// Show hash values for matched and different files
+    #[arg(short, long, default_value_t = false)]
+    verbose: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,8 +104,8 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
     println!("  Folder Comparison Utility (Real-time Mode)");
     println!("{}", "==============================================".bright_blue());
 
-    let files1 = collect_files(&config.folder1)?;
-    let files2 = collect_files(&config.folder2)?;
+    let files1 = collect_files(&config.folder1, config.subfolders)?;
+    let files2 = collect_files(&config.folder2, config.subfolders)?;
 
     let mut files2_relative: HashSet<PathBuf> = files2
         .iter()
@@ -124,21 +132,21 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
 
             if is_match {
                 matches += 1;
-                print_realtime_result("MATCH", rel_path, Some(&h1), None, config.algo)?;
+                print_realtime_result("MATCH", rel_path, Some(&h1), None, config.algo, config.verbose)?;
             } else {
                 diffs += 1;
-                print_realtime_result("DIFF", rel_path, Some(&h1), Some(&h2), config.algo)?;
+                print_realtime_result("DIFF", rel_path, Some(&h1), Some(&h2), config.algo, config.verbose)?;
             }
             files2_relative.remove(rel_path);
         } else {
             missing += 1;
-            print_realtime_result("MISSING", rel_path, None, None, config.algo)?;
+            print_realtime_result("MISSING", rel_path, None, None, config.algo, config.verbose)?;
         }
     }
 
     let extra = files2_relative.len();
     for rel_path in &files2_relative {
-        print_realtime_result("EXTRA", rel_path, None, None, config.algo)?;
+        print_realtime_result("EXTRA", rel_path, None, None, config.algo, config.verbose)?;
     }
 
     let elapsed = start_time.elapsed();
@@ -155,6 +163,7 @@ fn print_realtime_result(
     h1: Option<&HashResult>,
     h2: Option<&HashResult>,
     algo: HashAlgo,
+    verbose: bool,
 ) -> Result<()> {
     let (status_colored, file_color) = match status {
         "MATCH" => ("MATCH".green(), Color::Green),
@@ -171,14 +180,16 @@ fn print_realtime_result(
         file_name.color(file_color)
     );
 
-    if status == "DIFF" {
-        if let (Some(h1), Some(h2)) = (h1, h2) {
-            println!("    {}: {}", "folder1".dimmed(), format_hashres(h1, algo)?);
-            println!("    {}: {}", "folder2".dimmed(), format_hashres(h2, algo)?);
-        }
-    } else if status == "MATCH" {
-        if let Some(h) = h1 {
-            println!("    {}: {}", "in_both".dimmed(), format_hashres(h, algo)?);
+    if verbose {
+        if status == "DIFF" {
+            if let (Some(h1), Some(h2)) = (h1, h2) {
+                println!("    {}: {}", "folder1".dimmed(), format_hashres(h1, algo)?);
+                println!("    {}: {}", "folder2".dimmed(), format_hashres(h2, algo)?);
+            }
+        } else if status == "MATCH" {
+            if let Some(h) = h1 {
+                println!("    {}: {}", "in_both".dimmed(), format_hashres(h, algo)?);
+            }
         }
     }
     println!();
@@ -207,10 +218,14 @@ fn print_summary(
 //=============================================================================
 
 fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
+    println!("{}", "==============================================".bright_blue());
+    println!("  Folder File Comparison Utility (Batch Mode)");
+    println!("{}", "==============================================".bright_blue());
+    println!(); // Empty line after banner
     // 1. Collect files from both directories in parallel
     let (files1, files2) = rayon::join(
-        || collect_files(&config.folder1),
-        || collect_files(&config.folder2),
+        || collect_files(&config.folder1, config.subfolders),
+        || collect_files(&config.folder2, config.subfolders),
     );
     let files1 = files1?;
     let files2 = files2?;
@@ -237,7 +252,7 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
     let pb = ProgressBar::new(common_paths.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [Elapsed->{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} (Remaining->{eta})")?
+            .template("{spinner:.green} [Elapsed->{elapsed_precise}] [ {bar:40.cyan/blue} ] {pos}/{len} (Remaining->{eta})")?
             .progress_chars("#>- ")
     );
 
@@ -358,9 +373,6 @@ fn generate_text_report(
     config: &Config,
 ) -> Result<String> {
     let mut output = String::new();
-        println!("{}", "==============================================".bright_blue());
-        println!("  Folder File Comparison Utility (Batch Mode)");
-        println!("{}", "==============================================".bright_blue());
 
     for result in results {
         let (status_colored, file_color) = match result.status.as_str() {
@@ -379,17 +391,19 @@ fn generate_text_report(
         );
         output.push_str(&line);
 
-        if result.status == "DIFF" {
-            if let (Some(h1), Some(h2)) = (&result.hash1, &result.hash2) {
-                let line1 = format!("    {}: {}\n", "folder1".dimmed(), format_hashres(h1, algo)?);
-                let line2 = format!("    {}: {}\n", "folder2".dimmed(), format_hashres(h2, algo)?);
-                output.push_str(&line1);
-                output.push_str(&line2);
-            }
-        } else if result.status == "MATCH" {
-            if let Some(h1) = &result.hash1 {
-                let line = format!("    {}: {}\n", "in_both".dimmed(), format_hashres(h1, algo)?);
-                output.push_str(&line);
+        if config.verbose {
+            if result.status == "DIFF" {
+                if let (Some(h1), Some(h2)) = (&result.hash1, &result.hash2) {
+                    let line1 = format!("    {}: {}\n", "folder1".dimmed(), format_hashres(h1, algo)?);
+                    let line2 = format!("    {}: {}\n", "folder2".dimmed(), format_hashres(h2, algo)?);
+                    output.push_str(&line1);
+                    output.push_str(&line2);
+                }
+            } else if result.status == "MATCH" {
+                if let Some(h1) = &result.hash1 {
+                    let line = format!("    {}: {}\n", "in_both".dimmed(), format_hashres(h1, algo)?);
+                    output.push_str(&line);
+                }
             }
         }
         output.push_str("\n");
@@ -504,7 +518,9 @@ fn write_report(
         file.write_all(output.as_bytes())?;
         println!("Report saved to {}", report_path.display());
     } else {
-        println!("{}", output);
+        for line in output.lines() {
+            println!("{}", line);
+        }
     }
     Ok(())
 }
@@ -513,8 +529,12 @@ fn write_report(
 // Common Helper Functions
 //=============================================================================
 
-fn collect_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    walkdir::WalkDir::new(dir)
+fn collect_files(dir: &Path, subfolders: bool) -> Result<Vec<PathBuf>> {
+    let mut walkdir = walkdir::WalkDir::new(dir);
+    if !subfolders {
+        walkdir = walkdir.max_depth(1);
+    }
+    walkdir
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
@@ -558,13 +578,12 @@ fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
 
 fn format_hashres(h: &HashResult, algo: HashAlgo) -> Result<String> {
     match algo {
-        HashAlgo::Sha256 => Ok(h.sha256.as_ref().context("SHA256 hash not computed")?.clone()),
-        HashAlgo::Blake3 => Ok(h.blake3.as_ref().context("BLAKE3 hash not computed")?.clone()),
+        HashAlgo::Sha256 => Ok(h.sha256.as_ref().context("SHA256 hash not computed")?.color(Color::Cyan).to_string()),
+        HashAlgo::Blake3 => Ok(h.blake3.as_ref().context("BLAKE3 hash not computed")?.color(Color::Cyan).to_string()),
         HashAlgo::Both => Ok(format!(
-            "sha256:{}
-            blake3:{}",
-            h.sha256.as_ref().context("SHA256 hash not computed")?,
-            h.blake3.as_ref().context("BLAKE3 hash not computed")?
+            "sha256:{}\n            blake3:{}",
+            h.sha256.as_ref().context("SHA256 hash not computed")?.color(Color::Cyan),
+            h.blake3.as_ref().context("BLAKE3 hash not computed")?.color(Color::Cyan)
         )),
     }
 }

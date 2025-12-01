@@ -1,130 +1,123 @@
-## Folder File Comparison Utility (cmpf)
+# cmpf: Folder File Comparison Utility
 
-A command-line utility for comparing the files in two folders, implemented in **Rust**.   
-The tool compares files by their names and hashes, reporting matches, differences, missing, and extra files. It offers flexible comparison modes and hashing algorithms.
+[![Rust](https://github.com/sms1sis/cmpf/actions/workflows/rust.yml/badge.svg)](https://github.com/sms1sis/cmpf/actions/workflows/rust.yml)
+
+A high-performance command-line utility implemented in **Rust** for efficiently comparing files across two directories. `cmpf` helps developers, system administrators, and anyone dealing with file synchronization or verification tasks to quickly identify matches, differences, missing, and extra files based on their names and cryptographic hashes.
 
 ---
 
 ## ✨ Features
 
-- **Compare two directories**: Checks for files with the same name in both folders.
-- **Flexible Hashing**: Compares file contents securely using `Sha256`, `Blake3`, or `Both` algorithms (default blake3).
-- **Comparison Modes**:
-    - `Batch` (default): Processes files in parallel for maximum speed, generating a comprehensive report at the end.
-    - `Realtime`: Processes files sequentially, providing immediate output as each file is compared.
-- **Progress Bar**: Shows a progress bar in `Batch` mode.
-- **Colorized Terminal Output**: Output is now highly intuitive: file names and status labels are colored green for matching files, red for differing files, and blue for missing or extra files. This applies to both real-time feedback and final reports.
-- **Optimized Performance**:
-    - **Batch Mode**: Experience significant speed improvements (up to 10x-12x faster in some scenarios) due to parallel processing and optimized file analysis, which now intelligently avoids hashing missing or extra files.
-    - **Realtime Mode**: Minor but noticeable speed gains have been achieved through optimized file existence checks.
-- **Enhanced Progress Bar**: In Batch mode, the progress bar provides clear "Elapsed" and "Remaining" time indicators for better tracking of long operations.
-- **Enhanced Summary Section**: A clear, colorized, and perfectly aligned summary box detailing total files, matches, differences, missing, extra files, mode, algorithm used, and time taken.
-- **JSON and TXT Output**: Option to save the comparison report as a `json` or `txt` file.
+*   **Dual Directory Comparison**: Compare files present in two specified directories.
+*   **Flexible Hashing Algorithms**: Utilize robust cryptographic hashing for content comparison:
+    *   **Blake3 (Default)**: A modern, extremely fast, and highly secure cryptographic hash function.
+    *   **Sha256**: A widely-used, secure cryptographic hash function.
+    *   **Both**: Compare files using both Blake3 and Sha256 for maximum integrity verification.
+*   **Optimized Comparison Modes**:
+    *   **Batch Mode (Default)**: Leverages parallel processing for significantly faster comparisons, ideal for large datasets. A comprehensive report is generated upon completion. Includes a dynamic progress bar for tracking.
+    *   **Realtime Mode**: Processes files sequentially, providing immediate feedback as each file is compared. Suitable for smaller directories or when instant updates are preferred.
+*   **Verbose Output**: Option to display the actual cryptographic hash values for matched and differing files.
+*   **Subfolder Traversal**: Control whether the comparison should include files within subdirectories recursively or only operate on the top-level files.
+*   **Colorized Terminal Output**: Intuitive color-coding (green for matches, red for differences, blue for missing/extra files) enhances readability in real-time feedback and final reports.
+*   **Exportable Reports**: Save comparison results in `JSON` or `TXT` formats for further analysis or record-keeping (Batch mode only).
 
 ---
 
-## ⚙️ Build & Usage
+## 🚀 Getting Started
 
-#### 📦 Requirements
+These instructions will get you a copy of the project up and running on your local machine.
 
-- Rust (https://www.rust-lang.org/tools/install)
-- [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html)
+### 📦 Prerequisites
 
-#### ⚙️  Build
+*   **Rust**: `cmpf` is built with Rust. If you don't have Rust and Cargo installed, you can get them from [rustup.rs](https://www.rust-lang.org/tools/install).
+
+### ⚙️ Installation & Building
+
+1.  **Clone the repository:**
+    ```sh
+    git clone https://github.com/sms1sis/cmpf.git
+    cd cmpf
+    ```
+2.  **Build the project in release mode:**
+    ```sh
+    cargo build --release
+    ```
+    The executable will be located at `./target/release/cmpf`.
+
+---
+
+## 💡 Usage
+
+The `cmpf` utility is run from the command line, requiring two folder paths as primary arguments.
 
 ```sh
-cargo build --release
+./target/release/cmpf <FOLDER1_PATH> <FOLDER2_PATH> [OPTIONS]
 ```
 
-#### 🚀 Usage
+### Arguments
 
-```sh
-# from rust/ folder
-cargo build --release
+*   `<FOLDER1_PATH>`: The path to the first directory for comparison.
+*   `<FOLDER2_PATH>`: The path to the second directory for comparison.
 
-./target/release/cmpf ./dirA ./dirB
+### Options
 
-# Run in Realtime mode (sequential output)
-./target/release/cmpf ./dirA ./dirB -m realtime
+*   `-m, --mode <MODE>`: Specify the comparison mode.
+    *   `batch` (default): Processes files in parallel, generating a report at the end.
+    *   `realtime`: Processes files sequentially, providing immediate output.
+*   `-a, --algo <ALGORITHM>`: Choose the hashing algorithm for content comparison.
+    *   `blake3` (default): Uses the high-performance Blake3 algorithm.
+    *   `sha256`: Uses the SHA-256 algorithm.
+    *   `both`: Uses both Blake3 and SHA-256 for comparison.
+*   `-o, --output-folder <OUTPUT_FOLDER>`: (Batch mode only) Specify a folder to save the comparison report. If omitted, the report is printed to stdout.
+*   `-f, --output-format <FORMAT>`: (Batch mode only) Define the format for the output report.
+    *   `txt` (default)
+    *   `json`
+*   `-s, --subfolders`: Enable file comparison in subfolders (recursive traversal). By default, only files in the top-level directories are compared.
+*   `-v, --verbose`: Show hash values for matched and different files in the output.
 
-# Run in Batch mode (parallel processing, report at end)
-./target/release/cmpf ./dirA ./dirB -m batch
+### Examples
 
-# Run with only BLAKE3 algorithm (default)
-./target/release/cmpf ./dirA ./dirB -a blake3
+1.  **Basic Comparison (Batch Mode, Blake3, Top-Level Only):**
+    ```sh
+    ./target/release/cmpf ./my_folder_a ./my_folder_b
+    ```
 
-# Run with only SHA-256 algorithm
-./target/release/cmpf ./dirA ./dirB -a sha256
+2.  **Realtime Comparison, including Subfolders:**
+    ```sh
+    ./target/release/cmpf ./my_project_v1 ./my_project_v2 -m realtime -s
+    ```
 
-# Run with both algorithms
-./target/release/cmpf ./dirA ./dirB -a both
+3.  **Batch Comparison with SHA-256, Verbose Output, Save to JSON:**
+    ```sh
+    ./target/release/cmpf /path/to/backup /path/to/current -a sha256 -v -o ./reports -f json
+    ```
 
-# Save report as a text file (Batch mode only)
-./target/release/cmpf ./dirA ./dirB -o=./reports -f=txt
-
-# Save report as a JSON file (Batch mode only)
-./target/release/cmpf ./dirA ./dirB -o=./reports -f=json
-```
-
-#### 📝 Example
-
-```sh
-cargo run -- test_folder1 test_folder2 -m realtime
-```
+4.  **Batch Comparison with Both Algorithms, Saving Text Report:**
+    ```sh
+    ./target/release/cmpf ./source_dir ./target_dir -a both -o ./comparison_logs -f txt
+    ```
 
 ---
 
-## 🖥️ Example Output (Realtime Mode)
+## 🤝 Contributing
 
-```text
-===============================================
-   Folder Comparison Utility (cmpf - Real-time Mode)
-===============================================
-[MATCH]  common.txt
-    in_both: sha256:cd575532bfb6aa856c11dcdc1c68c99a0bf0fc5b42d575392ac07c950e9f426f blake3:5c8c5b280826a57d2f55c48aaa2fbf0b1703ddb44831958578549897da3563a3
+Contributions are welcome! If you have suggestions for improvements or new features, please open an issue first to discuss them. For pull requests:
 
-[DIFF]  different.txt
-    folder1: sha256:62e4c9fd0489743c376e09101368dd0e38b25f8a9b49d3d34c2c9942cb3d8b04 blake3:4034107a698e6c3a4576cabc9e3231fe0c79b45537674590a42443882837cc60
-    folder2: sha256:d33681ea2887e73666e1dfa572ad932217bd0fa20781f48979bcfc07b8fbb22b blake3:ca856568c194199bad3e86801b7d7608f8e44510c66ac69e472def34bc7c6dfc
-
-[MISSING]  unique1.txt
-
-[EXTRA]  unique2.txt
-
-╔══════════════════════════════════════════════╗
-║                    Summary                           ║
-╠══════════════════════════════════════════════╣
-║  Mode                   : Realtime                   ║
-║  Algorithm              : Both                       ║
-║  Total files checked    : 4                          ║
-║  Matches                : 1                          ║
-║  Differences            : 1                          ║
-║  Missing in Folder2     : 1                          ║
-║  Extra in Folder2       : 1                          ║
-║  Time taken             : 5.23ms                     ║
-╚══════════════════════════════════════════════╝
-```
-*Note: In the actual terminal output, `[MATCH] common.txt` would be green, `[DIFF] different.txt` would be red, and `[MISSING] unique1.txt` and `[EXTRA] unique2.txt` would be blue.*
-
-## 🖥️ Example Output (Batch Mode Progress Bar)
-
-When running in Batch mode, you will see a progress bar similar to this:
-`[Elapsed->00:00:02] [########################################] 53/53 (Remaining->0s)`
+1.  Fork the repository.
+2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+4.  Push to the branch (`git push origin feature/AmazingFeature`).
+5.  Open a Pull Request.
 
 ---
 
-## ⚡Note:
-- For fastest speed use default setup. **blake3+batch**
-- If you don't pass any flag it will fall back to default 
+## 📜 License
+
+This project is licensed under the MIT License - see the `LICENSE` file for details.
 
 ---
 
-## 🙌 Credits
+## 🙏 Acknowledgments
 
-- [`anyhow`](https://crates.io/crates/anyhow) [`blake3`](https://crates.io/crates/blake3) [`clap`](https://crates.io/crates/clap) [`colored`](https://crates.io/crates/colored) [`rayon`](https://crates.io/crates/rayon) [`serde`](https://crates.io/crates/serde) [`serde_json`](https://crates.io/crates/serde_json) [`sha2`](https://crates.io/crates/sha2) [`walkdir`](https://crates.io/crates/walkdir)
-
----
-
-## Contributions
-
-Pull requests and improvements are welcome! Please open an issue first if you wish to discuss major changes.
+*   Built with the power of Rust and its fantastic ecosystem of crates.
+*   Special thanks to the developers of `clap`, `rayon`, `colored`, `indicatif`, `blake3`, `sha2`, `serde`, and `walkdir`.
