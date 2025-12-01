@@ -1,7 +1,5 @@
 # cmpf: Folder File Comparison Utility
 
-[![Rust](https://github.com/sms1sis/cmpf/actions/workflows/rust.yml/badge.svg)](https://github.com/sms1sis/cmpf/actions/workflows/rust.yml)
-
 A high-performance command-line utility implemented in **Rust** for efficiently comparing files across two directories. `cmpf` helps developers, system administrators, and anyone dealing with file synchronization or verification tasks to quickly identify matches, differences, missing, and extra files based on their names and cryptographic hashes.
 
 ---
