@@ -33,8 +33,8 @@ These instructions will get you a copy of the project up and running on your loc
 
 1.  **Clone the repository:**
     ```sh
-    git clone https://github.com/sms1sis/cmpf.git
-    cd cmpf
+    git clone https://github.com/sms1sis/Compare_two_folders.git
+    cd Compare_two_folders
     ```
 2.  **Build the project in release mode:**
     ```sh
