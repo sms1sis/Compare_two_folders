@@ -39,5 +39,3 @@ There are several directions for further improvement of your folder comparison t
 - **“Suggest improvement/feature” command:** Add a CLI flag that outputs URL for opening a feature request.
 
 ---
-
-Would you like recommendations focused on a specific area (for example: performance, user interface, new features, or code quality)? Or would you like example code for any of the above suggestions?
