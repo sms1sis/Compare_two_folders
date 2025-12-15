@@ -2,7 +2,11 @@
 name = "cmpf"
 version = "2.3.0"
 edition = "2024"
-authors = ["sms1sis"]
+authors = ["sms1sis, sadimsajid2004@gmail.com"]
+license = "MIT"
+description = "A tool to compare the contents of two folders"
+repository = "https://github.com/sms1sis/Compare_two_folders"
+categories = ["command-line-utilities"]
 
 [dependencies]
 sha2 = "0.10"
