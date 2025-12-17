@@ -64,6 +64,18 @@ struct Config {
     /// Show hash values for matched and different files
     #[arg(short, long, default_value_t = false)]
     verbose: bool,
+
+    /// Include hidden files and folders in the comparison
+    #[arg(short = 'H', long, default_value_t = false)]
+    hidden: bool,
+
+    /// File extensions to include in the comparison (e.g., .txt, .jpg)
+    #[arg(short = 't', long = "type", action = clap::ArgAction::Append)]
+    types: Option<Vec<String>>,
+
+    /// A gitignore-style pattern to ignore. Can be used multiple times.
+    #[arg(short = 'i', long, action = clap::ArgAction::Append)]
+    ignore: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,8 +116,20 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
     println!("  Folder Comparison Utility (Real-time Mode)");
     println!("{}", "==============================================".bright_blue());
 
-    let files1 = collect_files(&config.folder1, config.subfolders)?;
-    let files2 = collect_files(&config.folder2, config.subfolders)?;
+    let files1 = collect_files(
+        &config.folder1,
+        config.subfolders,
+        config.hidden,
+        &config.types,
+        &config.ignore,
+    )?;
+    let files2 = collect_files(
+        &config.folder2,
+        config.subfolders,
+        config.hidden,
+        &config.types,
+        &config.ignore,
+    )?;
 
     let mut files2_relative: HashSet<PathBuf> = files2
         .iter()
@@ -145,8 +169,11 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
     }
 
     let extra = files2_relative.len();
-    for rel_path in &files2_relative {
-        print_realtime_result("EXTRA", rel_path, None, None, config.algo, config.verbose)?;
+    let mut sorted_extra: Vec<_> = files2_relative.into_iter().collect();
+    sorted_extra.sort();
+
+    for rel_path in sorted_extra {
+        print_realtime_result("EXTRA", &rel_path, None, None, config.algo, config.verbose)?;
     }
 
     let elapsed = start_time.elapsed();
@@ -224,8 +251,24 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
     println!(); // Empty line after banner
     // 1. Collect files from both directories in parallel
     let (files1, files2) = rayon::join(
-        || collect_files(&config.folder1, config.subfolders),
-        || collect_files(&config.folder2, config.subfolders),
+        || {
+            collect_files(
+                &config.folder1,
+                config.subfolders,
+                config.hidden,
+                &config.types,
+                &config.ignore,
+            )
+        },
+        || {
+            collect_files(
+                &config.folder2,
+                config.subfolders,
+                config.hidden,
+                &config.types,
+                &config.ignore,
+            )
+        },
     );
     let files1 = files1?;
     let files2 = files2?;
@@ -311,7 +354,10 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
         });
     }
 
-    // 6. Count results
+    // 6. Sort results alphabetically by file path
+    all_results.sort_by(|a, b| a.file.cmp(&b.file));
+
+    // 7. Count results
     let mut matches = 0;
     let mut diffs = 0;
     let mut missing = 0;
@@ -328,7 +374,7 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
     let total = all_results.len();
     let elapsed = start_time.elapsed();
 
-    // 7. Generate report (no changes needed here)
+    // 8. Generate report (no changes needed here)
     match config.output_format {
         OutputFormat::Txt => {
             let output = generate_text_report(
@@ -529,18 +575,86 @@ fn write_report(
 // Common Helper Functions
 //=============================================================================
 
-fn collect_files(dir: &Path, subfolders: bool) -> Result<Vec<PathBuf>> {
-    let mut walkdir = walkdir::WalkDir::new(dir);
+use globset::{Glob, GlobSetBuilder};
+use ignore::WalkBuilder;
+
+fn collect_files(
+    dir: &Path,
+    subfolders: bool,
+    hidden: bool,
+    types: &Option<Vec<String>>,
+    ignore_patterns: &Option<Vec<String>>,
+) -> Result<Vec<PathBuf>> {
+    let mut walk_builder = WalkBuilder::new(dir);
+    walk_builder.hidden(!hidden);
     if !subfolders {
-        walkdir = walkdir.max_depth(1);
+        walk_builder.max_depth(Some(1));
     }
-    walkdir
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .map(|e| Ok(e.path().to_path_buf()))
-        .collect()
+
+    let custom_ignore_set = if let Some(patterns) = ignore_patterns {
+        let mut builder = GlobSetBuilder::new();
+        for p in patterns {
+            builder.add(Glob::new(p)?);
+        }
+        Some(builder.build()?)
+    } else {
+        None
+    };
+
+    let type_filter: Option<HashSet<String>> = types.as_ref().map(|exts| {
+        exts.iter().map(|ext| ext.trim_start_matches('.').to_lowercase()).collect()
+    });
+
+use std::sync::{Arc, Mutex};
+
+//...
+
+    let walker = walk_builder.build_parallel();
+    let files = Arc::new(Mutex::new(Vec::new()));
+
+    walker.run(|| {
+        let files = files.clone();
+        let type_filter = type_filter.clone();
+        let custom_ignore_set = custom_ignore_set.clone();
+
+        Box::new(move |result| {
+            let entry = match result {
+                Ok(e) => e,
+                Err(_) => return ignore::WalkState::Continue,
+            };
+
+            if let Some(ref set) = custom_ignore_set {
+                if set.is_match(entry.path()) {
+                    return ignore::WalkState::Continue;
+                }
+            }
+
+            if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+                return ignore::WalkState::Continue;
+            }
+
+            if let Some(ref exts) = type_filter {
+                if !entry
+                    .path()
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map_or(false, |s| exts.contains(&s.to_lowercase()))
+                {
+                    return ignore::WalkState::Continue;
+                }
+            }
+
+            files.lock().unwrap().push(entry.path().to_path_buf());
+            ignore::WalkState::Continue
+        })
+    });
+
+    let mut final_files = Arc::try_unwrap(files).unwrap().into_inner().unwrap();
+    final_files.sort();
+    Ok(final_files)
 }
+
+
 
 fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
     let mut f = File::open(path)?;
