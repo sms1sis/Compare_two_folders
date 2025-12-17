@@ -1,0 +1,6 @@
+# Ignore Gemini CLI metadata
+GEMINI.md
+improvement.txt
+
+# Ignore build artifacts
+target/
