@@ -76,6 +76,10 @@ struct Config {
     /// A gitignore-style pattern to ignore. Can be used multiple times.
     #[arg(short = 'i', long, action = clap::ArgAction::Append)]
     ignore: Option<Vec<String>>,
+
+    /// Number of threads to use for parallel processing (default: number of CPU cores)
+    #[arg(short = 'j', long, value_name = "COUNT")]
+    threads: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +102,13 @@ fn main() -> Result<()> {
     
     let start_time = Instant::now();
     let config = Config::parse();
+
+    if let Some(num_threads) = config.threads {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .build_global()
+            .context("Failed to set Rayon thread pool size")?;
+    }
 
     match config.mode {
         Mode::Realtime => run_realtime(&config, start_time)?,
