@@ -294,12 +294,12 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
 
     // Create maps from relative path -> absolute path for easy lookup later
     let files1_map: HashMap<PathBuf, PathBuf> = files1
-        .par_iter()
-        .map(|f| (f.strip_prefix(&config.folder1).unwrap().to_path_buf(), f.clone()))
+        .into_par_iter()
+        .map(|f| (f.strip_prefix(&config.folder1).unwrap().to_path_buf(), f))
         .collect();
     let files2_map: HashMap<PathBuf, PathBuf> = files2
-        .par_iter()
-        .map(|f| (f.strip_prefix(&config.folder2).unwrap().to_path_buf(), f.clone()))
+        .into_par_iter()
+        .map(|f| (f.strip_prefix(&config.folder2).unwrap().to_path_buf(), f))
         .collect();
 
     let set1_paths: HashSet<PathBuf> = files1_map.keys().cloned().collect();
