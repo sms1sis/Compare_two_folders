@@ -156,21 +156,28 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
 
         if files2_relative.contains(rel_path) {
             let f2_abs = config.folder2.join(rel_path); // f2_abs is needed for compute_hashes
-            let h1 = compute_hashes(f1_abs, config.algo)?;
-            let h2 = compute_hashes(&f2_abs, config.algo)?;
+            let h1_res = compute_hashes(f1_abs, config.algo);
+            let h2_res = compute_hashes(&f2_abs, config.algo);
 
-            let is_match = match config.algo {
-                HashAlgo::Sha256 => h1.sha256 == h2.sha256,
-                HashAlgo::Blake3 => h1.blake3 == h2.blake3,
-                HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
-            };
+            match (h1_res, h2_res) {
+                (Ok(h1), Ok(h2)) => {
+                    let is_match = match config.algo {
+                        HashAlgo::Sha256 => h1.sha256 == h2.sha256,
+                        HashAlgo::Blake3 => h1.blake3 == h2.blake3,
+                        HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
+                    };
 
-            if is_match {
-                matches += 1;
-                print_realtime_result("MATCH", rel_path, Some(&h1), None, config.algo, config.verbose)?;
-            } else {
-                diffs += 1;
-                print_realtime_result("DIFF", rel_path, Some(&h1), Some(&h2), config.algo, config.verbose)?;
+                    if is_match {
+                        matches += 1;
+                        print_realtime_result("MATCH", rel_path, Some(&h1), None, config.algo, config.verbose)?;
+                    } else {
+                        diffs += 1;
+                        print_realtime_result("DIFF", rel_path, Some(&h1), Some(&h2), config.algo, config.verbose)?;
+                    }
+                }
+                _ => {
+                    print_realtime_result("ERROR", rel_path, None, None, config.algo, config.verbose)?;
+                }
             }
             files2_relative.remove(rel_path);
         } else {
@@ -208,6 +215,7 @@ fn print_realtime_result(
         "DIFF" => ("DIFF".red(), Color::Red),
         "MISSING" => ("MISSING".blue(), Color::Blue),
         "EXTRA" => ("EXTRA".blue(), Color::Blue),
+        "ERROR" => ("ERROR".red().on_white(), Color::Red),
         _ => (status.normal(), Color::White),
     };
 
@@ -323,22 +331,24 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
                 || compute_hashes(f1_abs, config.algo),
                 || compute_hashes(f2_abs, config.algo),
             );
-            let h1 = h1_res?;
-            let h2 = h2_res?;
 
-            let is_match = match config.algo {
-                HashAlgo::Sha256 => h1.sha256 == h2.sha256,
-                HashAlgo::Blake3 => h1.blake3 == h2.blake3,
-                HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
+            let (status, h1, h2) = match (h1_res, h2_res) {
+                (Ok(h1), Ok(h2)) => {
+                    let is_match = match config.algo {
+                        HashAlgo::Sha256 => h1.sha256 == h2.sha256,
+                        HashAlgo::Blake3 => h1.blake3 == h2.blake3,
+                        HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
+                    };
+                    (if is_match { "MATCH" } else { "DIFF" }, Some(h1), Some(h2))
+                }
+                _ => ("ERROR", None, None),
             };
-
-            let status = if is_match { "MATCH" } else { "DIFF" };
 
             Ok(ComparisonResult {
                 file: rel_path.clone(),
                 status: status.to_string(),
-                hash1: Some(h1),
-                hash2: Some(h2),
+                hash1: h1,
+                hash2: h2,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -437,6 +447,7 @@ fn generate_text_report(
             "DIFF" => ("DIFF".red(), Color::Red),
             "MISSING" => ("MISSING".blue(), Color::Blue),
             "EXTRA" => ("EXTRA".blue(), Color::Blue),
+            "ERROR" => ("ERROR".red().on_white(), Color::Red),
             _ => (result.status.as_str().normal(), Color::White),
         };
 
