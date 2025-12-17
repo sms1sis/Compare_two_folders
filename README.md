@@ -14,6 +14,12 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
 *   **Optimized Comparison Modes**:
     *   **Batch Mode (Default)**: Leverages parallel processing for significantly faster comparisons, ideal for large datasets. A comprehensive report is generated upon completion. Includes a dynamic progress bar for tracking.
     *   **Realtime Mode**: Processes files sequentially, providing immediate feedback as each file is compared. Suitable for smaller directories or when instant updates are preferred.
+*   **Advanced File Filtering**:
+    *   **Ignore Patterns**: Automatically respects `.gitignore` rules and supports custom ignore patterns (`--ignore`) to exclude specific files or directories.
+    *   **Hidden Files**: By default, hidden files (those starting with a `.`) are ignored. Use the `--hidden` flag to include them.
+    *   **File Types**: Filter the comparison to include only specific file extensions (e.g., `.txt`, `.jpg`).
+*   **Parallelization Control**: Manually set the number of threads to use in batch mode for fine-grained performance tuning.
+*   **Sorted Output**: All file lists in the output are alphabetically sorted for consistent and easy-to-read results.
 *   **Verbose Output**: Option to display the actual cryptographic hash values for matched and differing files.
 *   **Subfolder Traversal**: Control whether the comparison should include files within subdirectories recursively or only operate on the top-level files.
 *   **Colorized Terminal Output**: Intuitive color-coding (green for matches, red for differences, blue for missing/extra files) enhances readability in real-time feedback and final reports.
@@ -72,6 +78,10 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
     *   `json`
 *   `-s, --subfolders`: Enable file comparison in subfolders (recursive traversal). By default, only files in the top-level directories are compared.
 *   `-v, --verbose`: Show hash values for matched and different files in the output.
+*   `-H, --hidden`: Include hidden files and directories in the comparison. By default, they are ignored.
+*   `-t, --type <EXTENSION>`: Compare only files with the specified extension (e.g., `txt`, `.jpg`). This flag can be used multiple times.
+*   `-i, --ignore <PATTERN>`: Specify a glob pattern to ignore files or directories. This flag can be used multiple times. Automatically respects `.gitignore` rules.
+*   `-j, --threads <COUNT>`: Set the number of threads to use for parallel processing in batch mode. Defaults to the number of available CPU cores.
 
 ### Examples
 
@@ -80,19 +90,24 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
     ./target/release/cmpf ./my_folder_a ./my_folder_b
     ```
 
-2.  **Realtime Comparison, including Subfolders:**
+2.  **Realtime Comparison, including Subfolders and Hidden Files:**
     ```sh
-    ./target/release/cmpf ./my_project_v1 ./my_project_v2 -m realtime -s
+    ./target/release/cmpf ./my_project_v1 ./my_project_v2 -m realtime -s -H
     ```
 
-3.  **Batch Comparison with SHA-256, Verbose Output, Save to JSON:**
+3.  **Batch Comparison, Only Comparing `.rs` and `.toml` Files:**
     ```sh
-    ./target/release/cmpf /path/to/backup /path/to/current -a sha256 -v -o ./reports -f json
+    ./target/release/cmpf ./src_v1 ./src_v2 -s -t rs -t toml
     ```
 
-4.  **Batch Comparison with Both Algorithms, Saving Text Report:**
+4.  **Batch Comparison while Ignoring `target` Directory and `.log` Files:**
     ```sh
-    ./target/release/cmpf ./source_dir ./target_dir -a both -o ./comparison_logs -f txt
+    ./target/release/cmpf ./project_a ./project_b -s -i "target/" -i "*.log"
+    ```
+
+5.  **High-Performance Batch with Verbose Output, Saving to JSON, on 16 Threads:**
+    ```sh
+    ./target/release/cmpf /path/to/backup /path/to/current -a sha256 -v -o ./reports -f json -s -j 16
     ```
 
 ---
@@ -118,4 +133,4 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
 ## 🙏 Acknowledgments
 
 *   Built with the power of Rust and its fantastic ecosystem of crates.
-*   Special thanks to the developers of `clap`, `rayon`, `colored`, `indicatif`, `blake3`, `sha2`, `serde`, and `walkdir`.
+*   Special thanks to the developers of `clap`, `rayon`, `colored`, `indicatif`, `blake3`, `sha2`, `serde`, `ignore`, and `globset`.
