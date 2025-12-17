@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -627,51 +628,55 @@ fn collect_files(
         exts.iter().map(|ext| ext.trim_start_matches('.').to_lowercase()).collect()
     });
 
-use std::sync::{Arc, Mutex};
-
-//...
-
+    let (tx, rx) = mpsc::channel();
     let walker = walk_builder.build_parallel();
-    let files = Arc::new(Mutex::new(Vec::new()));
 
-    walker.run(|| {
-        let files = files.clone();
-        let type_filter = type_filter.clone();
-        let custom_ignore_set = custom_ignore_set.clone();
+    // Spawn a thread to drive the walker so we can collect in the main thread (or just collect after).
+    // Actually, walker.run() blocks, so we need to run it in a thread if we want to read from rx in parallel,
+    // OR we can just let it finish (since the channel buffer will hold items) but mpsc is unbounded so it's fine.
+    // However, if we want to avoid blocking the sender if the buffer was bounded, we'd need a thread.
+    // With unbounded mpsc, we can run walker in a thread and collect in current, OR run walker in current and drop tx.
+    // To allow the walker to finish, we wrap it in a thread.
+    std::thread::spawn(move || {
+        walker.run(|| {
+            let tx = tx.clone();
+            let type_filter = type_filter.clone();
+            let custom_ignore_set = custom_ignore_set.clone();
 
-        Box::new(move |result| {
-            let entry = match result {
-                Ok(e) => e,
-                Err(_) => return ignore::WalkState::Continue,
-            };
+            Box::new(move |result| {
+                let entry = match result {
+                    Ok(e) => e,
+                    Err(_) => return ignore::WalkState::Continue,
+                };
 
-            if let Some(ref set) = custom_ignore_set {
-                if set.is_match(entry.path()) {
+                if let Some(ref set) = custom_ignore_set {
+                    if set.is_match(entry.path()) {
+                        return ignore::WalkState::Continue;
+                    }
+                }
+
+                if !entry.file_type().map_or(false, |ft| ft.is_file()) {
                     return ignore::WalkState::Continue;
                 }
-            }
 
-            if !entry.file_type().map_or(false, |ft| ft.is_file()) {
-                return ignore::WalkState::Continue;
-            }
-
-            if let Some(ref exts) = type_filter {
-                if !entry
-                    .path()
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .map_or(false, |s| exts.contains(&s.to_lowercase()))
-                {
-                    return ignore::WalkState::Continue;
+                if let Some(ref exts) = type_filter {
+                    if !entry
+                        .path()
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .map_or(false, |s| exts.contains(&s.to_lowercase()))
+                    {
+                        return ignore::WalkState::Continue;
+                    }
                 }
-            }
 
-            files.lock().unwrap().push(entry.path().to_path_buf());
-            ignore::WalkState::Continue
-        })
+                let _ = tx.send(entry.path().to_path_buf());
+                ignore::WalkState::Continue
+            })
+        });
     });
 
-    let mut final_files = Arc::try_unwrap(files).unwrap().into_inner().unwrap();
+    let mut final_files: Vec<PathBuf> = rx.into_iter().collect();
     final_files.sort();
     Ok(final_files)
 }
