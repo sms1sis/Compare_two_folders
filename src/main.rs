@@ -12,7 +12,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-const BUF_SIZE: usize = 8 * 1024;
+const BUF_SIZE: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum HashAlgo {
