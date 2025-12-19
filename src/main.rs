@@ -315,7 +315,7 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
     let pb = ProgressBar::new(common_paths.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [Elapsed->{elapsed_precise}] [ {bar:40.cyan/blue} ] {pos}/{len} (Remaining->{eta})")?
+            .template("{spinner:.green} [Elap>{elapsed_precise}] [ {bar:40.cyan/blue} ] {pos}/{len} (Rema>{eta})")?
             .progress_chars("#>- ")
     );
 
