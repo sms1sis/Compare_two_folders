@@ -327,6 +327,18 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
             let f1_abs = files1_map.get(rel_path).unwrap();
             let f2_abs = files2_map.get(rel_path).unwrap();
 
+            // Short-circuit: Check file sizes first
+            if let (Ok(meta1), Ok(meta2)) = (fs::metadata(f1_abs), fs::metadata(f2_abs)) {
+                if meta1.len() != meta2.len() {
+                    return Ok(ComparisonResult {
+                        file: rel_path.clone(),
+                        status: "DIFF".to_string(),
+                        hash1: None,
+                        hash2: None,
+                    });
+                }
+            }
+
             // Compute hashes for the pair of files in parallel
             let (h1_res, h2_res) = rayon::join(
                 || compute_hashes(f1_abs, config.algo),
