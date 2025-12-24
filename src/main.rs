@@ -81,6 +81,10 @@ struct Config {
     /// Number of threads to use for parallel processing (default: number of CPU cores)
     #[arg(short = 'j', long, value_name = "COUNT")]
     threads: Option<usize>,
+
+    /// Compare only file sizes (improves performance, but less accurate)
+    #[arg(short = 'S', long, default_value_t = false)]
+    size_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -157,27 +161,45 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
 
         if files2_relative.contains(rel_path) {
             let f2_abs = config.folder2.join(rel_path); // f2_abs is needed for compute_hashes
-            let h1_res = compute_hashes(f1_abs, config.algo);
-            let h2_res = compute_hashes(&f2_abs, config.algo);
-
-            match (h1_res, h2_res) {
-                (Ok(h1), Ok(h2)) => {
-                    let is_match = match config.algo {
-                        HashAlgo::Sha256 => h1.sha256 == h2.sha256,
-                        HashAlgo::Blake3 => h1.blake3 == h2.blake3,
-                        HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
-                    };
-
-                    if is_match {
-                        matches += 1;
-                        print_realtime_result("MATCH", rel_path, Some(&h1), None, config.algo, config.verbose)?;
-                    } else {
-                        diffs += 1;
-                        print_realtime_result("DIFF", rel_path, Some(&h1), Some(&h2), config.algo, config.verbose)?;
-                    }
+            
+            // Check sizes first
+            let mut sizes_differ = false;
+            if let (Ok(meta1), Ok(meta2)) = (fs::metadata(f1_abs), fs::metadata(&f2_abs)) {
+                if meta1.len() != meta2.len() {
+                    sizes_differ = true;
                 }
-                _ => {
-                    print_realtime_result("ERROR", rel_path, None, None, config.algo, config.verbose)?;
+            }
+
+            if sizes_differ {
+                diffs += 1;
+                print_realtime_result("DIFF", rel_path, None, None, config.algo, config.verbose)?;
+            } else if config.size_only {
+                // Sizes match and we are in size-only mode -> MATCH
+                matches += 1;
+                print_realtime_result("MATCH", rel_path, None, None, config.algo, config.verbose)?;
+            } else {
+                let h1_res = compute_hashes(f1_abs, config.algo);
+                let h2_res = compute_hashes(&f2_abs, config.algo);
+
+                match (h1_res, h2_res) {
+                    (Ok(h1), Ok(h2)) => {
+                        let is_match = match config.algo {
+                            HashAlgo::Sha256 => h1.sha256 == h2.sha256,
+                            HashAlgo::Blake3 => h1.blake3 == h2.blake3,
+                            HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
+                        };
+
+                        if is_match {
+                            matches += 1;
+                            print_realtime_result("MATCH", rel_path, Some(&h1), None, config.algo, config.verbose)?;
+                        } else {
+                            diffs += 1;
+                            print_realtime_result("DIFF", rel_path, Some(&h1), Some(&h2), config.algo, config.verbose)?;
+                        }
+                    }
+                    _ => {
+                        print_realtime_result("ERROR", rel_path, None, None, config.algo, config.verbose)?;
+                    }
                 }
             }
             files2_relative.remove(rel_path);
@@ -334,6 +356,14 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
                     return Ok(ComparisonResult {
                         file: rel_path.clone(),
                         status: "DIFF".to_string(),
+                        hash1: None,
+                        hash2: None,
+                    });
+                } else if config.size_only {
+                     // Sizes match and user requested size-only comparison
+                     return Ok(ComparisonResult {
+                        file: rel_path.clone(),
+                        status: "MATCH".to_string(),
                         hash1: None,
                         hash2: None,
                     });
@@ -499,7 +529,11 @@ fn generate_text_report(
 
 fn generate_summary_text(total: usize, matches: usize, diffs: usize, missing: usize, extra: usize, elapsed: std::time::Duration, config: &Config) -> Vec<String> {
     let mode_str = format!("{:?}", config.mode);
-    let algo_str = format!("{:?}", config.algo);
+    let algo_str = if config.size_only {
+        "Size Only".to_string()
+    } else {
+        format!("{:?}", config.algo)
+    };
     let elapsed_str = format!("{:.2?}", elapsed);
 
     // The total width of the content area INSIDE the box borders
