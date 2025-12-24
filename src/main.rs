@@ -318,6 +318,7 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
             .template("{spinner:.green} [Elap>{elapsed_precise}] [ {bar:40.cyan/blue} ] {pos}/{len} (Rema>{eta})")?
             .progress_chars("#>- ")
     );
+    pb.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_rate(10));
 
     // 3. Process common files in parallel (the only ones that need hashing)
     let mut all_results: Vec<ComparisonResult> = common_paths
