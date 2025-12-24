@@ -14,6 +14,9 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
 *   **Optimized Comparison Modes**:
     *   **Batch Mode (Default)**: Leverages parallel processing for significantly faster comparisons, ideal for large datasets. A comprehensive report is generated upon completion. Includes a dynamic progress bar for tracking.
     *   **Realtime Mode**: Processes files sequentially, providing immediate feedback as each file is compared. Suitable for smaller directories or when instant updates are preferred.
+*   **High-Speed Optimizations**: Includes smart short-circuiting and optimized I/O strategies for handling massive directory trees (e.g., kernel sources) with minimal overhead.
+*   **Quick Comparison**:
+    *   **Size Only**: Use the `--size-only` flag to skip cryptographic hashing and compare files solely based on their size. This is extremely fast and useful for initial checks.
 *   **Advanced File Filtering**:
     *   **Ignore Patterns**: Automatically respects `.gitignore` rules and supports custom ignore patterns (`--ignore`) to exclude specific files or directories.
     *   **Hidden Files**: By default, hidden files (those starting with a `.`) are ignored. Use the `--hidden` flag to include them.
@@ -82,6 +85,7 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
 *   `-t, --type <EXTENSION>`: Compare only files with the specified extension (e.g., `txt`, `.jpg`). This flag can be used multiple times.
 *   `-i, --ignore <PATTERN>`: Specify a glob pattern to ignore files or directories. This flag can be used multiple times. Automatically respects `.gitignore` rules.
 *   `-j, --threads <COUNT>`: Set the number of threads to use for parallel processing in batch mode. Defaults to the number of available CPU cores.
+*   `-S, --size-only`: Compare only file sizes to skip cryptographic hashing. Drastically improves speed for large datasets where deep content verification is not strictly required.
 
 ### Examples
 
@@ -90,7 +94,12 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
     ./target/release/cmpf ./my_folder_a ./my_folder_b
     ```
 
-2.  **Realtime Comparison, including Subfolders and Hidden Files:**
+2.  **Rapid Size-Only Comparison (Ideal for initial checks of large trees):**
+    ```sh
+    ./target/release/cmpf ./linux-kernel-v1 ./linux-kernel-v2 -s -S
+    ```
+
+3.  **Realtime Comparison, including Subfolders and Hidden Files:**
     ```sh
     ./target/release/cmpf ./my_project_v1 ./my_project_v2 -m realtime -s -H
     ```
