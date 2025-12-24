@@ -697,8 +697,9 @@ fn collect_files(
 
 
 fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
-    let mut f = File::open(path)?;
-    let mut buf = [0u8; BUF_SIZE];
+    let metadata = fs::metadata(path)?;
+    let len = metadata.len();
+    let small_file_threshold = 10 * 1024 * 1024; // 10 MB
 
     let mut sha256_hasher = if matches!(algo, HashAlgo::Sha256 | HashAlgo::Both) {
         Some(Sha256::new())
@@ -711,16 +712,29 @@ fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
         None
     };
 
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
+    if len < small_file_threshold {
+        let data = fs::read(path)?;
         if let Some(h) = sha256_hasher.as_mut() {
-            h.update(&buf[..n]);
+            h.update(&data);
         }
         if let Some(bh) = blake3_hasher.as_mut() {
-            bh.update(&buf[..n]);
+            bh.update_rayon(&data);
+        }
+    } else {
+        let mut f = File::open(path)?;
+        let mut buf = [0u8; BUF_SIZE];
+
+        loop {
+            let n = f.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            if let Some(h) = sha256_hasher.as_mut() {
+                h.update(&buf[..n]);
+            }
+            if let Some(bh) = blake3_hasher.as_mut() {
+                bh.update(&buf[..n]);
+            }
         }
     }
 
