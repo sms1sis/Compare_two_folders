@@ -350,8 +350,8 @@ fn print_realtime_result(
                 println!("    {}: {}", "folder2".dimmed(), format_hashres(h2, algo)?);
             } else if let (Some(s1), Some(s2)) = (size1, size2) {
                 if s1 != s2 {
-                    println!("    {}: {} bytes", "folder1".dimmed(), s1.to_string().cyan());
-                    println!("    {}: {} bytes", "folder2".dimmed(), s2.to_string().cyan());
+                    println!("    {}: {}", "folder1".dimmed(), format!("{} bytes", s1).cyan());
+                    println!("    {}: {}", "folder2".dimmed(), format!("{} bytes", s2).cyan());
                 } else if let (Some(t1), Some(t2)) = (time1, time2) {
                     // Sizes match, so it must be timestamps
                     if t1 != t2 {
@@ -583,8 +583,8 @@ fn generate_text_report(
                     output.push_str(&line2);
                 } else if let (Some(s1), Some(s2)) = (result.size1, result.size2) {
                      if s1 != s2 {
-                        let line1 = format!("    {}: {} bytes\n", "folder1".dimmed(), s1.to_string().cyan());
-                        let line2 = format!("    {}: {} bytes\n", "folder2".dimmed(), s2.to_string().cyan());
+                        let line1 = format!("    {}: {}\n", "folder1".dimmed(), format!("{} bytes", s1).cyan());
+                        let line2 = format!("    {}: {}\n", "folder2".dimmed(), format!("{} bytes", s2).cyan());
                         output.push_str(&line1);
                         output.push_str(&line2);
                      } else if let (Some(t1), Some(t2)) = (&result.modified1, &result.modified2) {
