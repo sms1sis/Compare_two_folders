@@ -86,7 +86,7 @@ struct Config {
     threads: Option<usize>,
 
     /// Disable alphabetical sorting of the output (improves performance)
-    #[arg(long, default_value_t = false)]
+    #[arg(short = 'n', long, default_value_t = false)]
     no_sort: bool,
 }
 
