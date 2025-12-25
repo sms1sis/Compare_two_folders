@@ -1,6 +1,6 @@
 [package]
 name = "cmpf"
-version = "3.2.0"
+version = "3.2.1"
 edition = "2024"
 authors = ["sms1sis sadimsajid2004@gmail.com"]
 license = "MIT"
