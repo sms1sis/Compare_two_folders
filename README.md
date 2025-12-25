@@ -141,4 +141,4 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
 ## 🙏 Acknowledgments
 
 *   Built with the power of Rust and its fantastic ecosystem of crates.
-*   Special thanks to the developers of `clap`, `rayon`, `colored`, `indicatif`, `blake3`, `sha2`, `serde`, `ignore`, and `globset`.
+*   Special thanks to the developers of `clap`, `rayon`, `colored`, `indicatif`, `blake3`, `sha2`, `serde`, `ignore`, `globset` and `chrono`.

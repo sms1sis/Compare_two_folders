@@ -12,6 +12,7 @@ use indicatif::{ProgressBar, ProgressStyle, ParallelProgressIterator};
 use rayon::prelude::*;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use chrono::{DateTime, Local};
 
 const BUF_SIZE: usize = 64 * 1024;
 
@@ -99,6 +100,8 @@ struct ComparisonResult {
     hash2: Option<HashResult>,
     size1: Option<u64>,
     size2: Option<u64>,
+    modified1: Option<String>,
+    modified2: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -167,10 +170,20 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
             let mut times_differ = false;
             let mut size1 = None;
             let mut size2 = None;
+            let mut time1_str = None;
+            let mut time2_str = None;
 
             if let (Ok(meta1), Ok(meta2)) = (fs::metadata(f1_abs), fs::metadata(&f2_abs)) {
                 size1 = Some(meta1.len());
                 size2 = Some(meta2.len());
+
+                if let Ok(t1) = meta1.modified() {
+                    time1_str = Some(DateTime::<Local>::from(t1).format("%Y-%m-%d %H:%M:%S").to_string());
+                }
+                if let Ok(t2) = meta2.modified() {
+                    time2_str = Some(DateTime::<Local>::from(t2).format("%Y-%m-%d %H:%M:%S").to_string());
+                }
+
                 if meta1.len() != meta2.len() {
                     sizes_differ = true;
                 }
@@ -181,14 +194,14 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
 
             if sizes_differ {
                 diffs += 1;
-                print_realtime_result("DIFF", rel_path, None, None, size1, size2, config.algo, config.verbose)?;
+                print_realtime_result("DIFF", rel_path, None, None, size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
             } else if config.mode == Mode::Metadata {
                  if times_differ {
                     diffs += 1;
-                    print_realtime_result("DIFF", rel_path, None, None, size1, size2, config.algo, config.verbose)?;
+                    print_realtime_result("DIFF", rel_path, None, None, size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
                 } else {
                     matches += 1;
-                    print_realtime_result("MATCH", rel_path, None, None, size1, size2, config.algo, config.verbose)?;
+                    print_realtime_result("MATCH", rel_path, None, None, size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
                 }
             } else {
                 let h1_res = compute_hashes(f1_abs, config.algo);
@@ -204,21 +217,21 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
 
                         if is_match {
                             matches += 1;
-                            print_realtime_result("MATCH", rel_path, Some(&h1), None, size1, size2, config.algo, config.verbose)?;
+                            print_realtime_result("MATCH", rel_path, Some(&h1), None, size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
                         } else {
                             diffs += 1;
-                            print_realtime_result("DIFF", rel_path, Some(&h1), Some(&h2), size1, size2, config.algo, config.verbose)?;
+                            print_realtime_result("DIFF", rel_path, Some(&h1), Some(&h2), size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
                         }
                     }
                     _ => {
-                        print_realtime_result("ERROR", rel_path, None, None, None, None, config.algo, config.verbose)?;
+                        print_realtime_result("ERROR", rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
                     }
                 }
             }
             files2_relative.remove(rel_path);
         } else {
             missing += 1;
-            print_realtime_result("MISSING", rel_path, None, None, None, None, config.algo, config.verbose)?;
+            print_realtime_result("MISSING", rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
         }
     }
 
@@ -227,7 +240,7 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
     sorted_extra.sort();
 
     for rel_path in sorted_extra {
-        print_realtime_result("EXTRA", &rel_path, None, None, None, None, config.algo, config.verbose)?;
+        print_realtime_result("EXTRA", &rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
     }
 
     let elapsed = start_time.elapsed();
@@ -245,6 +258,8 @@ fn print_realtime_result(
     h2: Option<&HashResult>,
     size1: Option<u64>,
     size2: Option<u64>,
+    time1: Option<&str>,
+    time2: Option<&str>,
     algo: HashAlgo,
     verbose: bool,
 ) -> Result<()> {
@@ -273,6 +288,12 @@ fn print_realtime_result(
                 if s1 != s2 {
                     println!("    {}: {} bytes", "folder1".dimmed(), s1.to_string().cyan());
                     println!("    {}: {} bytes", "folder2".dimmed(), s2.to_string().cyan());
+                } else if let (Some(t1), Some(t2)) = (time1, time2) {
+                    // Sizes match, so it must be timestamps
+                    if t1 != t2 {
+                         println!("    {}: {}", "folder1".dimmed(), t1.cyan());
+                         println!("    {}: {}", "folder2".dimmed(), t2.cyan());
+                    }
                 }
             }
         } else if status == "MATCH" {
@@ -370,16 +391,33 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
             let f1_abs = files1_map.get(rel_path).unwrap();
             let f2_abs = files2_map.get(rel_path).unwrap();
 
-            // Short-circuit: Check file sizes first
+            let mut size1 = None;
+            let mut size2 = None;
+            let mut time1_str = None;
+            let mut time2_str = None;
+
+            // Short-circuit: Check file sizes and times first
             if let (Ok(meta1), Ok(meta2)) = (fs::metadata(f1_abs), fs::metadata(f2_abs)) {
+                size1 = Some(meta1.len());
+                size2 = Some(meta2.len());
+
+                if let Ok(t1) = meta1.modified() {
+                    time1_str = Some(DateTime::<Local>::from(t1).format("%Y-%m-%d %H:%M:%S").to_string());
+                }
+                if let Ok(t2) = meta2.modified() {
+                    time2_str = Some(DateTime::<Local>::from(t2).format("%Y-%m-%d %H:%M:%S").to_string());
+                }
+
                 if meta1.len() != meta2.len() {
                     return Ok(ComparisonResult {
                         file: rel_path.clone(),
                         status: "DIFF".to_string(),
                         hash1: None,
                         hash2: None,
-                        size1: Some(meta1.len()),
-                        size2: Some(meta2.len()),
+                        size1,
+                        size2,
+                        modified1: time1_str,
+                        modified2: time2_str,
                     });
                 } else if config.mode == Mode::Metadata {
                     if meta1.modified().ok() != meta2.modified().ok() {
@@ -388,8 +426,10 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
                             status: "DIFF".to_string(),
                             hash1: None,
                             hash2: None,
-                            size1: Some(meta1.len()),
-                            size2: Some(meta2.len()),
+                            size1,
+                            size2,
+                            modified1: time1_str,
+                            modified2: time2_str,
                         });
                     }
                      // Sizes and times match
@@ -398,8 +438,10 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
                         status: "MATCH".to_string(),
                         hash1: None,
                         hash2: None,
-                        size1: Some(meta1.len()),
-                        size2: Some(meta2.len()),
+                        size1,
+                        size2,
+                        modified1: time1_str,
+                        modified2: time2_str,
                     });
                 }
             }
@@ -427,8 +469,10 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
                 status: status.to_string(),
                 hash1: h1,
                 hash2: h2,
-                size1: None,
-                size2: None,
+                size1,
+                size2,
+                modified1: time1_str,
+                modified2: time2_str,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -444,6 +488,8 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
             hash2: None,
             size1: None,
             size2: None,
+            modified1: None,
+            modified2: None,
         });
     }
 
@@ -456,6 +502,8 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
             hash2: None,
             size1: None,
             size2: None,
+            modified1: None,
+            modified2: None,
         });
     }
 
@@ -556,6 +604,14 @@ fn generate_text_report(
                         let line2 = format!("    {}: {} bytes\n", "folder2".dimmed(), s2.to_string().cyan());
                         output.push_str(&line1);
                         output.push_str(&line2);
+                     } else if let (Some(t1), Some(t2)) = (&result.modified1, &result.modified2) {
+                        // Sizes match, check timestamps
+                        if t1 != t2 {
+                             let line1 = format!("    {}: {}\n", "folder1".dimmed(), t1.cyan());
+                             let line2 = format!("    {}: {}\n", "folder2".dimmed(), t2.cyan());
+                             output.push_str(&line1);
+                             output.push_str(&line2);
+                        }
                      }
                 }
             } else if result.status == "MATCH" {
