@@ -95,6 +95,13 @@ struct HashResult {
     blake3: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct FileEntry {
+    path: PathBuf,
+    size: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct ComparisonResult {
     file: PathBuf,
@@ -135,28 +142,36 @@ fn main() -> Result<()> {
 
 fn compare_files(
     rel_path: PathBuf,
-    f1_abs: &Path,
-    f2_abs: &Path,
+    entry1: &FileEntry,
+    entry2: &FileEntry,
     config: &Config,
 ) -> Result<ComparisonResult> {
-    let mut size1 = None;
-    let mut size2 = None;
+    let size1 = Some(entry1.size);
+    let size2 = Some(entry2.size);
     let mut time1_str = None;
     let mut time2_str = None;
 
-    // Short-circuit: Check file sizes and times first
-    if let (Ok(meta1), Ok(meta2)) = (fs::metadata(f1_abs), fs::metadata(f2_abs)) {
-        size1 = Some(meta1.len());
-        size2 = Some(meta2.len());
+    if let Some(t1) = entry1.modified {
+        time1_str = Some(DateTime::<Local>::from(t1).format("%Y-%m-%d %H:%M:%S").to_string());
+    }
+    if let Some(t2) = entry2.modified {
+        time2_str = Some(DateTime::<Local>::from(t2).format("%Y-%m-%d %H:%M:%S").to_string());
+    }
 
-        if let Ok(t1) = meta1.modified() {
-            time1_str = Some(DateTime::<Local>::from(t1).format("%Y-%m-%d %H:%M:%S").to_string());
-        }
-        if let Ok(t2) = meta2.modified() {
-            time2_str = Some(DateTime::<Local>::from(t2).format("%Y-%m-%d %H:%M:%S").to_string());
-        }
-
-        if meta1.len() != meta2.len() {
+    // Short-circuit: Check file sizes and times first using cached metadata
+    if entry1.size != entry2.size {
+        return Ok(ComparisonResult {
+            file: rel_path,
+            status: "DIFF".to_string(),
+            hash1: None,
+            hash2: None,
+            size1,
+            size2,
+            modified1: time1_str,
+            modified2: time2_str,
+        });
+    } else if config.mode == Mode::Metadata {
+        if entry1.modified != entry2.modified {
             return Ok(ComparisonResult {
                 file: rel_path,
                 status: "DIFF".to_string(),
@@ -167,37 +182,24 @@ fn compare_files(
                 modified1: time1_str,
                 modified2: time2_str,
             });
-        } else if config.mode == Mode::Metadata {
-            if meta1.modified().ok() != meta2.modified().ok() {
-                return Ok(ComparisonResult {
-                    file: rel_path,
-                    status: "DIFF".to_string(),
-                    hash1: None,
-                    hash2: None,
-                    size1,
-                    size2,
-                    modified1: time1_str,
-                    modified2: time2_str,
-                });
-            }
-            // Sizes and times match
-            return Ok(ComparisonResult {
-                file: rel_path,
-                status: "MATCH".to_string(),
-                hash1: None,
-                hash2: None,
-                size1,
-                size2,
-                modified1: time1_str,
-                modified2: time2_str,
-            });
         }
+        // Sizes and times match
+        return Ok(ComparisonResult {
+            file: rel_path,
+            status: "MATCH".to_string(),
+            hash1: None,
+            hash2: None,
+            size1,
+            size2,
+            modified1: time1_str,
+            modified2: time2_str,
+        });
     }
 
     // Compute hashes for the pair of files in parallel
     let (h1_res, h2_res) = rayon::join(
-        || compute_hashes(f1_abs, config.algo),
-        || compute_hashes(f2_abs, config.algo),
+        || compute_hashes(&entry1.path, config.algo),
+        || compute_hashes(&entry2.path, config.algo),
     );
 
     let (status, h1, h2) = match (h1_res, h2_res) {
@@ -250,25 +252,26 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
 
     // Sort if not disabled
     if !config.no_sort {
-        files1.sort();
+        files1.sort_by(|a, b| a.path.cmp(&b.path));
     }
 
-    let mut files2_relative: HashSet<PathBuf> = files2
-        .iter()
-        .map(|f| f.strip_prefix(&config.folder2).map(|p| p.to_path_buf()))
-        .collect::<Result<_, _>>()?;
+    let mut files2_map: HashMap<PathBuf, FileEntry> = files2
+        .into_iter()
+        .map(|f| {
+            let rel = f.path.strip_prefix(&config.folder2).unwrap().to_path_buf();
+            (rel, f)
+        })
+        .collect();
 
     let mut matches = 0;
     let mut diffs = 0;
     let mut missing = 0;
 
-    for f1_abs in &files1 {
-        let rel_path = f1_abs.strip_prefix(&config.folder1)?.to_path_buf();
+    for entry1 in &files1 {
+        let rel_path = entry1.path.strip_prefix(&config.folder1)?.to_path_buf();
 
-        if files2_relative.contains(&rel_path) {
-            let f2_abs = config.folder2.join(&rel_path);
-            
-            let result = compare_files(rel_path.clone(), f1_abs, &f2_abs, config)?;
+        if let Some(entry2) = files2_map.remove(&rel_path) {
+            let result = compare_files(rel_path.clone(), entry1, &entry2, config)?;
 
             match result.status.as_str() {
                 "MATCH" => matches += 1,
@@ -288,16 +291,14 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
                 config.algo,
                 config.verbose
             )?;
-            
-            files2_relative.remove(&rel_path);
         } else {
             missing += 1;
             print_realtime_result("MISSING", &rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
         }
     }
 
-    let extra = files2_relative.len();
-    let mut sorted_extra: Vec<_> = files2_relative.into_iter().collect();
+    let extra = files2_map.len();
+    let mut sorted_extra: Vec<_> = files2_map.into_keys().collect();
     if !config.no_sort {
         sorted_extra.sort();
     }
@@ -419,14 +420,14 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
     let files1 = files1?;
     let files2 = files2?;
 
-    // Create maps from relative path -> absolute path for easy lookup later
-    let files1_map: HashMap<PathBuf, PathBuf> = files1
+    // Create maps from relative path -> FileEntry for easy lookup later
+    let files1_map: HashMap<PathBuf, FileEntry> = files1
         .into_par_iter()
-        .map(|f| (f.strip_prefix(&config.folder1).unwrap().to_path_buf(), f))
+        .map(|f| (f.path.strip_prefix(&config.folder1).unwrap().to_path_buf(), f))
         .collect();
-    let files2_map: HashMap<PathBuf, PathBuf> = files2
+    let files2_map: HashMap<PathBuf, FileEntry> = files2
         .into_par_iter()
-        .map(|f| (f.strip_prefix(&config.folder2).unwrap().to_path_buf(), f))
+        .map(|f| (f.path.strip_prefix(&config.folder2).unwrap().to_path_buf(), f))
         .collect();
 
     let set1_paths: HashSet<PathBuf> = files1_map.keys().cloned().collect();
@@ -451,9 +452,9 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
         .par_iter()
         .progress_with(pb.clone())
         .map(|rel_path| {
-            let f1_abs = files1_map.get(rel_path).unwrap();
-            let f2_abs = files2_map.get(rel_path).unwrap();
-            compare_files(rel_path.clone(), f1_abs, f2_abs, config)
+            let entry1 = files1_map.get(rel_path).unwrap();
+            let entry2 = files2_map.get(rel_path).unwrap();
+            compare_files(rel_path.clone(), entry1, entry2, config)
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -739,7 +740,7 @@ fn collect_files(
     hidden: bool,
     types: &Option<Vec<String>>,
     ignore_patterns: &Option<Vec<String>>,
-) -> Result<Vec<PathBuf>> {
+) -> Result<Vec<FileEntry>> {
     let mut walk_builder = WalkBuilder::new(dir);
     walk_builder.hidden(!hidden);
     if !subfolders {
@@ -763,12 +764,6 @@ fn collect_files(
     let (tx, rx) = mpsc::channel();
     let walker = walk_builder.build_parallel();
 
-    // Spawn a thread to drive the walker so we can collect in the main thread (or just collect after).
-    // Actually, walker.run() blocks, so we need to run it in a thread if we want to read from rx in parallel,
-    // OR we can just let it finish (since the channel buffer will hold items) but mpsc is unbounded so it's fine.
-    // However, if we want to avoid blocking the sender if the buffer was bounded, we'd need a thread.
-    // With unbounded mpsc, we can run walker in a thread and collect in current, OR run walker in current and drop tx.
-    // To allow the walker to finish, we wrap it in a thread.
     std::thread::spawn(move || {
         walker.run(|| {
             let tx = tx.clone();
@@ -802,13 +797,22 @@ fn collect_files(
                     }
                 }
 
-                let _ = tx.send(entry.path().to_path_buf());
+                // Collect metadata during walk
+                if let Ok(meta) = entry.metadata() {
+                    let entry_data = FileEntry {
+                        path: entry.path().to_path_buf(),
+                        size: meta.len(),
+                        modified: meta.modified().ok(),
+                    };
+                    let _ = tx.send(entry_data);
+                }
+                
                 ignore::WalkState::Continue
             })
         });
     });
 
-    let final_files: Vec<PathBuf> = rx.into_iter().collect();
+    let final_files: Vec<FileEntry> = rx.into_iter().collect();
     Ok(final_files)
 }
 
