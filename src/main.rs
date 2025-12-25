@@ -84,6 +84,10 @@ struct Config {
     /// Number of threads to use for parallel processing (default: number of CPU cores)
     #[arg(short = 'j', long, value_name = "COUNT")]
     threads: Option<usize>,
+
+    /// Disable alphabetical sorting of the output (improves performance)
+    #[arg(long, default_value_t = false)]
+    no_sort: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,6 +131,101 @@ fn main() -> Result<()> {
 }
 
 //=============================================================================
+// Core Comparison Logic
+//=============================================================================
+
+fn compare_files(
+    rel_path: PathBuf,
+    f1_abs: &Path,
+    f2_abs: &Path,
+    config: &Config,
+) -> Result<ComparisonResult> {
+    let mut size1 = None;
+    let mut size2 = None;
+    let mut time1_str = None;
+    let mut time2_str = None;
+
+    // Short-circuit: Check file sizes and times first
+    if let (Ok(meta1), Ok(meta2)) = (fs::metadata(f1_abs), fs::metadata(f2_abs)) {
+        size1 = Some(meta1.len());
+        size2 = Some(meta2.len());
+
+        if let Ok(t1) = meta1.modified() {
+            time1_str = Some(DateTime::<Local>::from(t1).format("%Y-%m-%d %H:%M:%S").to_string());
+        }
+        if let Ok(t2) = meta2.modified() {
+            time2_str = Some(DateTime::<Local>::from(t2).format("%Y-%m-%d %H:%M:%S").to_string());
+        }
+
+        if meta1.len() != meta2.len() {
+            return Ok(ComparisonResult {
+                file: rel_path,
+                status: "DIFF".to_string(),
+                hash1: None,
+                hash2: None,
+                size1,
+                size2,
+                modified1: time1_str,
+                modified2: time2_str,
+            });
+        } else if config.mode == Mode::Metadata {
+            if meta1.modified().ok() != meta2.modified().ok() {
+                return Ok(ComparisonResult {
+                    file: rel_path,
+                    status: "DIFF".to_string(),
+                    hash1: None,
+                    hash2: None,
+                    size1,
+                    size2,
+                    modified1: time1_str,
+                    modified2: time2_str,
+                });
+            }
+            // Sizes and times match
+            return Ok(ComparisonResult {
+                file: rel_path,
+                status: "MATCH".to_string(),
+                hash1: None,
+                hash2: None,
+                size1,
+                size2,
+                modified1: time1_str,
+                modified2: time2_str,
+            });
+        }
+    }
+
+    // Compute hashes for the pair of files in parallel
+    let (h1_res, h2_res) = rayon::join(
+        || compute_hashes(f1_abs, config.algo),
+        || compute_hashes(f2_abs, config.algo),
+    );
+
+    let (status, h1, h2) = match (h1_res, h2_res) {
+        (Ok(h1), Ok(h2)) => {
+            let is_match = match config.algo {
+                HashAlgo::Sha256 => h1.sha256 == h2.sha256,
+                HashAlgo::Blake3 => h1.blake3 == h2.blake3,
+                HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
+            };
+            (if is_match { "MATCH" } else { "DIFF" }, Some(h1), Some(h2))
+        }
+        _ => ("ERROR", None, None),
+    };
+
+    Ok(ComparisonResult {
+        file: rel_path,
+        status: status.to_string(),
+        hash1: h1,
+        hash2: h2,
+        size1,
+        size2,
+        modified1: time1_str,
+        modified2: time2_str,
+    })
+}
+
+//=============================================================================
 // Real-time (Sequential) Mode
 //=============================================================================
 
@@ -135,7 +234,7 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
     println!("  Folder Comparison Utility (Real-time Mode)");
     println!("{}", "==============================================".bright_blue());
 
-    let files1 = collect_files(
+    let mut files1 = collect_files(
         &config.folder1,
         config.subfolders,
         config.hidden,
@@ -150,6 +249,11 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
         &config.ignore,
     )?;
 
+    // Sort if not disabled
+    if !config.no_sort {
+        files1.sort();
+    }
+
     let mut files2_relative: HashSet<PathBuf> = files2
         .iter()
         .map(|f| f.strip_prefix(&config.folder2).map(|p| p.to_path_buf()))
@@ -160,84 +264,44 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
     let mut missing = 0;
 
     for f1_abs in &files1 {
-        let rel_path = f1_abs.strip_prefix(&config.folder1)?;
+        let rel_path = f1_abs.strip_prefix(&config.folder1)?.to_path_buf();
 
-        if files2_relative.contains(rel_path) {
-            let f2_abs = config.folder2.join(rel_path); // f2_abs is needed for compute_hashes
+        if files2_relative.contains(&rel_path) {
+            let f2_abs = config.folder2.join(&rel_path);
             
-            // Check sizes first
-            let mut sizes_differ = false;
-            let mut times_differ = false;
-            let mut size1 = None;
-            let mut size2 = None;
-            let mut time1_str = None;
-            let mut time2_str = None;
+            let result = compare_files(rel_path.clone(), f1_abs, &f2_abs, config)?;
 
-            if let (Ok(meta1), Ok(meta2)) = (fs::metadata(f1_abs), fs::metadata(&f2_abs)) {
-                size1 = Some(meta1.len());
-                size2 = Some(meta2.len());
-
-                if let Ok(t1) = meta1.modified() {
-                    time1_str = Some(DateTime::<Local>::from(t1).format("%Y-%m-%d %H:%M:%S").to_string());
-                }
-                if let Ok(t2) = meta2.modified() {
-                    time2_str = Some(DateTime::<Local>::from(t2).format("%Y-%m-%d %H:%M:%S").to_string());
-                }
-
-                if meta1.len() != meta2.len() {
-                    sizes_differ = true;
-                }
-                 if config.mode == Mode::Metadata && meta1.modified().ok() != meta2.modified().ok() {
-                    times_differ = true;
-                }
+            match result.status.as_str() {
+                "MATCH" => matches += 1,
+                "DIFF" => diffs += 1,
+                _ => (),
             }
 
-            if sizes_differ {
-                diffs += 1;
-                print_realtime_result("DIFF", rel_path, None, None, size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
-            } else if config.mode == Mode::Metadata {
-                 if times_differ {
-                    diffs += 1;
-                    print_realtime_result("DIFF", rel_path, None, None, size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
-                } else {
-                    matches += 1;
-                    print_realtime_result("MATCH", rel_path, None, None, size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
-                }
-            } else {
-                let h1_res = compute_hashes(f1_abs, config.algo);
-                let h2_res = compute_hashes(&f2_abs, config.algo);
-
-                match (h1_res, h2_res) {
-                    (Ok(h1), Ok(h2)) => {
-                        let is_match = match config.algo {
-                            HashAlgo::Sha256 => h1.sha256 == h2.sha256,
-                            HashAlgo::Blake3 => h1.blake3 == h2.blake3,
-                            HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
-                        };
-
-                        if is_match {
-                            matches += 1;
-                            print_realtime_result("MATCH", rel_path, Some(&h1), None, size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
-                        } else {
-                            diffs += 1;
-                            print_realtime_result("DIFF", rel_path, Some(&h1), Some(&h2), size1, size2, time1_str.as_deref(), time2_str.as_deref(), config.algo, config.verbose)?;
-                        }
-                    }
-                    _ => {
-                        print_realtime_result("ERROR", rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
-                    }
-                }
-            }
-            files2_relative.remove(rel_path);
+            print_realtime_result(
+                &result.status,
+                &rel_path,
+                result.hash1.as_ref(),
+                result.hash2.as_ref(),
+                result.size1,
+                result.size2,
+                result.modified1.as_deref(),
+                result.modified2.as_deref(),
+                config.algo,
+                config.verbose
+            )?;
+            
+            files2_relative.remove(&rel_path);
         } else {
             missing += 1;
-            print_realtime_result("MISSING", rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
+            print_realtime_result("MISSING", &rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
         }
     }
 
     let extra = files2_relative.len();
     let mut sorted_extra: Vec<_> = files2_relative.into_iter().collect();
-    sorted_extra.sort();
+    if !config.no_sort {
+        sorted_extra.sort();
+    }
 
     for rel_path in sorted_extra {
         print_realtime_result("EXTRA", &rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
@@ -390,90 +454,7 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
         .map(|rel_path| {
             let f1_abs = files1_map.get(rel_path).unwrap();
             let f2_abs = files2_map.get(rel_path).unwrap();
-
-            let mut size1 = None;
-            let mut size2 = None;
-            let mut time1_str = None;
-            let mut time2_str = None;
-
-            // Short-circuit: Check file sizes and times first
-            if let (Ok(meta1), Ok(meta2)) = (fs::metadata(f1_abs), fs::metadata(f2_abs)) {
-                size1 = Some(meta1.len());
-                size2 = Some(meta2.len());
-
-                if let Ok(t1) = meta1.modified() {
-                    time1_str = Some(DateTime::<Local>::from(t1).format("%Y-%m-%d %H:%M:%S").to_string());
-                }
-                if let Ok(t2) = meta2.modified() {
-                    time2_str = Some(DateTime::<Local>::from(t2).format("%Y-%m-%d %H:%M:%S").to_string());
-                }
-
-                if meta1.len() != meta2.len() {
-                    return Ok(ComparisonResult {
-                        file: rel_path.clone(),
-                        status: "DIFF".to_string(),
-                        hash1: None,
-                        hash2: None,
-                        size1,
-                        size2,
-                        modified1: time1_str,
-                        modified2: time2_str,
-                    });
-                } else if config.mode == Mode::Metadata {
-                    if meta1.modified().ok() != meta2.modified().ok() {
-                         return Ok(ComparisonResult {
-                            file: rel_path.clone(),
-                            status: "DIFF".to_string(),
-                            hash1: None,
-                            hash2: None,
-                            size1,
-                            size2,
-                            modified1: time1_str,
-                            modified2: time2_str,
-                        });
-                    }
-                     // Sizes and times match
-                     return Ok(ComparisonResult {
-                        file: rel_path.clone(),
-                        status: "MATCH".to_string(),
-                        hash1: None,
-                        hash2: None,
-                        size1,
-                        size2,
-                        modified1: time1_str,
-                        modified2: time2_str,
-                    });
-                }
-            }
-
-            // Compute hashes for the pair of files in parallel
-            let (h1_res, h2_res) = rayon::join(
-                || compute_hashes(f1_abs, config.algo),
-                || compute_hashes(f2_abs, config.algo),
-            );
-
-            let (status, h1, h2) = match (h1_res, h2_res) {
-                (Ok(h1), Ok(h2)) => {
-                    let is_match = match config.algo {
-                        HashAlgo::Sha256 => h1.sha256 == h2.sha256,
-                        HashAlgo::Blake3 => h1.blake3 == h2.blake3,
-                        HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
-                    };
-                    (if is_match { "MATCH" } else { "DIFF" }, Some(h1), Some(h2))
-                }
-                _ => ("ERROR", None, None),
-            };
-
-            Ok(ComparisonResult {
-                file: rel_path.clone(),
-                status: status.to_string(),
-                hash1: h1,
-                hash2: h2,
-                size1,
-                size2,
-                modified1: time1_str,
-                modified2: time2_str,
-            })
+            compare_files(rel_path.clone(), f1_abs, f2_abs, config)
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -507,8 +488,10 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
         });
     }
 
-    // 6. Sort results alphabetically by file path
-    all_results.sort_by(|a, b| a.file.cmp(&b.file));
+    // 6. Sort results alphabetically by file path (unless no_sort is set)
+    if !config.no_sort {
+        all_results.sort_by(|a, b| a.file.cmp(&b.file));
+    }
 
     // 7. Count results
     let mut matches = 0;
@@ -826,8 +809,7 @@ fn collect_files(
         });
     });
 
-    let mut final_files: Vec<PathBuf> = rx.into_iter().collect();
-    final_files.sort();
+    let final_files: Vec<PathBuf> = rx.into_iter().collect();
     Ok(final_files)
 }
 

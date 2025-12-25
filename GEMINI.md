@@ -46,12 +46,13 @@ The codebase is structured following standard Rust best practices, utilizing a m
 
 ## Recent Enhancements
 
-*   **Version 3.3.0 Metadata Mode & UX Improvements**:
-    *   **Metadata Mode**: Replaced the legacy `-S` (Size Only) flag with a robust `-m metadata` mode. This mode checks both **file size** and **modification time**, offering a middle ground between speed and accuracy.
-    *   **Enhanced Verbose Output**: The `-v` flag now provides granular details for differences:
-        *   Displays file sizes (in bytes) when sizes differ.
-        *   Displays formatted timestamps (e.g., `2023-04-18 11:33:18`) when sizes match but modification times differ (Metadata mode).
-    *   **Chrono Integration**: Integrated the `chrono` crate for reliable cross-platform timestamp handling.
+*   **Version 3.3.0 Metadata Mode & Architectural Cleanup**:
+    *   **Metadata Mode**: Replaced legacy `-S` flag with a robust `-m metadata` mode (checks size + time).
+    *   **Refactored Core Logic**: Unified comparison logic into a single internal function, ensuring identical behavior across Batch and Realtime modes.
+    *   **Sorting Optimization**: Implemented conditional sorting. The tool now defaults to alphabetical output but allows users to disable it for maximum performance.
+    *   **New Flag**: Added `--no-sort` to skip CPU-heavy sorting operations in large directory trees.
+    *   **Enhanced Verbose Output**: The `-v` flag now explicitly details size/time differences.
+    *   **Chrono Integration**: Added `chrono` for cross-platform timestamp formatting.
 
 *   **Version 3.2.0 Performance Overhaul**:
     *   **Size-Only Mode**: Added `-S` flag for ultra-fast comparison when cryptographic security is not required.
