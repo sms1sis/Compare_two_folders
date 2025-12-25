@@ -126,6 +126,18 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
 
 ---
 
+> [!IMPORTANT]
+> **Windows Performance Note: Antivirus "I/O Tax"**
+>
+> On Windows, background security features (such as Real-time Protection) intercept every file access request to perform scans. For I/O-intensive tasks involving tens of thousands of files, this can degrade performance by **1,000% to 2,000%**.
+>
+> **To achieve maximum performance (~7s vs 200s):**
+> * **Add a Process Exclusion:** Add `cmpf.exe` to your security software's exclusion list.
+> * **Add a Path Exclusion:** Exclude the specific directories you are comparing.
+> * **Temporary Disable:** Follow the [manual steps](#disabling-protection-temporarily) below to disable monitoring during the run.
+
+---
+
 ## 🤝 Contributing
 
 Contributions are welcome! If you have suggestions for improvements or new features, please open an issue first to discuss them. For pull requests:
