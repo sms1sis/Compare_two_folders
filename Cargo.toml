@@ -21,6 +21,7 @@ indicatif = { version = "0.18", features = ["rayon"] }
 ignore = "0.4"
 globset = "0.4"
 chrono = "0.4.42"
+memmap2 = "0.9"
 
 [profile.release]
 opt-level = 3              # (Default, but good to be explicit)

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Instant;
@@ -9,12 +9,11 @@ use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle, ParallelProgressIterator};
+use memmap2::Mmap;
 use rayon::prelude::*;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use chrono::{DateTime, Local};
-
-const BUF_SIZE: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum HashAlgo {
@@ -831,7 +830,9 @@ fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
         None
     };
 
-    if len < small_file_threshold {
+    if len == 0 {
+        // Handle empty files - nothing to update
+    } else if len < small_file_threshold {
         let data = fs::read(path)?;
         if let Some(h) = sha256_hasher.as_mut() {
             h.update(&data);
@@ -840,20 +841,15 @@ fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
             bh.update_rayon(&data);
         }
     } else {
-        let mut f = File::open(path)?;
-        let mut buf = [0u8; BUF_SIZE];
-
-        loop {
-            let n = f.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            if let Some(h) = sha256_hasher.as_mut() {
-                h.update(&buf[..n]);
-            }
-            if let Some(bh) = blake3_hasher.as_mut() {
-                bh.update(&buf[..n]);
-            }
+        let f = File::open(path)?;
+        // SAFETY: We assume the file is not being modified/truncated externally during comparison.
+        let mmap = unsafe { Mmap::map(&f)? };
+        
+        if let Some(h) = sha256_hasher.as_mut() {
+            h.update(&mmap);
+        }
+        if let Some(bh) = blake3_hasher.as_mut() {
+            bh.update_rayon(&mmap);
         }
     }
 
