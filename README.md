@@ -21,8 +21,8 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
     *   **Hidden Files**: By default, hidden files (those starting with a `.`) are ignored. Use the `--hidden` flag to include them.
     *   **File Types**: Filter the comparison to include only specific file extensions (e.g., `.txt`, `.jpg`).
 *   **Parallelization Control**: Manually set the number of threads to use in batch mode for fine-grained performance tuning.
-*   **Sorted Output**: All file lists in the output are alphabetically sorted for consistent and easy-to-read results.
-*   **Verbose Output**: Option to display the actual cryptographic hash values for matched and differing files.
+*   **Sorted Output**: All file lists in the output are alphabetically sorted by default for consistent and easy-to-read results. This can be disabled using the `--no-sort` flag for maximum performance.
+*   **Verbose Output**: Option to display the actual cryptographic hash values, exact file sizes, or formatted timestamps for matched and differing files.
 *   **Subfolder Traversal**: Control whether the comparison should include files within subdirectories recursively or only operate on the top-level files.
 *   **Colorized Terminal Output**: Intuitive color-coding (green for matches, red for differences, blue for missing/extra files) enhances readability in real-time feedback and final reports.
 *   **Exportable Reports**: Save comparison results in `JSON` or `TXT` formats for further analysis or record-keeping (Batch mode only).
@@ -80,11 +80,12 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
     *   `txt` (default)
     *   `json`
 *   `-s, --subfolders`: Enable file comparison in subfolders (recursive traversal). By default, only files in the top-level directories are compared.
-*   `-v, --verbose`: Show hash values for matched and different files in the output.
+*   `-v, --verbose`: Show hash values, file sizes, or timestamps for differences in the output.
 *   `-H, --hidden`: Include hidden files and directories in the comparison. By default, they are ignored.
 *   `-t, --type <EXTENSION>`: Compare only files with the specified extension (e.g., `txt`, `.jpg`). This flag can be used multiple times.
 *   `-i, --ignore <PATTERN>`: Specify a glob pattern to ignore files or directories. This flag can be used multiple times. Automatically respects `.gitignore` rules.
 *   `-j, --threads <COUNT>`: Set the number of threads to use for parallel processing in batch mode. Defaults to the number of available CPU cores.
+*   `-n, --no-sort`: Disable alphabetical sorting of the output. Drastically improves performance on massive directory trees when order is not required.
 
 ### Examples
 
@@ -103,19 +104,24 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
     ./target/release/cmpf ./my_project_v1 ./my_project_v2 -m realtime -s -H
     ```
 
-3.  **Batch Comparison, Only Comparing `.rs` and `.toml` Files:**
+4.  **Batch Comparison, Only Comparing `.rs` and `.toml` Files:**
     ```sh
     ./target/release/cmpf ./src_v1 ./src_v2 -s -t rs -t toml
     ```
 
-4.  **Batch Comparison while Ignoring `target` Directory and `.log` Files:**
+5.  **Batch Comparison while Ignoring `target` Directory and `.log` Files:**
     ```sh
     ./target/release/cmpf ./project_a ./project_b -s -i "target/" -i "*.log"
     ```
 
-5.  **High-Performance Batch with Verbose Output, Saving to JSON, on 16 Threads:**
+6.  **Maximum Performance Comparison (Metadata mode, No sorting, 16 threads):**
     ```sh
-    ./target/release/cmpf /path/to/backup /path/to/current -a sha256 -v -o ./reports -f json -s -j 16
+    ./target/release/cmpf /path/to/source /path/to/dest -m metadata -s --no-sort -j 16
+    ```
+
+7.  **High-Performance Batch with Verbose Output, Saving to JSON:**
+    ```sh
+    ./target/release/cmpf /path/to/backup /path/to/current -a sha256 -v -o ./reports -f json -s
     ```
 
 ---
