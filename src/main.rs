@@ -821,7 +821,10 @@ fn collect_files(
 fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
     let metadata = fs::metadata(path)?;
     let len = metadata.len();
-    let small_file_threshold = 10 * 1024 * 1024; // 10 MB
+    
+    // The 32KB Hybrid Threshold: std::fs::read is faster for tiny files.
+    // memmap2 wins for anything > 32KB by utilizing the OS Page Cache directly.
+    const MMAP_THRESHOLD: u64 = 32 * 1024; 
 
     let mut sha256_hasher = if matches!(algo, HashAlgo::Sha256 | HashAlgo::Both) {
         Some(Sha256::new())
@@ -834,9 +837,15 @@ fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
         None
     };
 
+    // Zero-Byte File Safety: Handle empty files early to avoid mmap errors.
     if len == 0 {
-        // Handle empty files - nothing to update
-    } else if len < small_file_threshold {
+        return Ok(HashResult {
+            sha256: sha256_hasher.map(|h| format!("{:x}", h.finalize())),
+            blake3: blake3_hasher.map(|h| h.finalize().to_hex().to_string()),
+        });
+    }
+
+    if len < MMAP_THRESHOLD {
         let data = fs::read(path)?;
         if let Some(h) = sha256_hasher.as_mut() {
             h.update(&data);
@@ -846,7 +855,9 @@ fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
         }
     } else {
         let f = File::open(path)?;
-        // SAFETY: We assume the file is not being modified/truncated externally during comparison.
+        // SAFETY: Mmap is unsafe because the underlying file can be truncated by 
+        // another process during hashing, which would trigger a SIGBUS error. 
+        // We assume files are not being truncated externally during the comparison.
         let mmap = unsafe { Mmap::map(&f)? };
         
         if let Some(h) = sha256_hasher.as_mut() {
