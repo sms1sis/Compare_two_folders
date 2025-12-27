@@ -404,7 +404,7 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<ExitStatus> {
 }
 
 fn print_error_entry(e: &ErrorEntry, source: &str) {
-    println!(
+    eprintln!(
         "[{}]{} ({}: {})",
         "ERROR".red().on_white(),
         e.path.display(),

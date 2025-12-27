@@ -13,7 +13,7 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
     *   **Both**: Compare files using both Blake3 and Sha256 for maximum integrity verification.
 *   **Optimized Comparison Modes**:
     *   **Batch Mode (Default)**: Leverages parallel processing for significantly faster comparisons, ideal for large datasets. A comprehensive report is generated upon completion. Includes a dynamic progress bar for tracking.
-    *   **Realtime Mode**: Processes files sequentially, providing immediate feedback as each file is compared. Suitable for smaller directories or when instant updates are preferred.
+    *   **Realtime Mode**: Processes files sequentially, providing immediate feedback as each file is compared. Suitable for smaller directories or when instant updates are preferred. Errors encountered during collection are emitted immediately to `stderr` (important for piping).
     *   **Metadata Mode**: Skips cryptographic hashing and compares files based on their size and modification time. This is extremely fast and improves accuracy over size-only checks.
 *   **High-Speed Optimizations**: Includes smart short-circuiting and optimized I/O strategies for handling massive directory trees (e.g., kernel sources) with minimal overhead.
 *   **Advanced File Filtering**:
@@ -30,6 +30,7 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
     *   **Exit Codes**: Returns `0` (Match), `1` (Diff), or `2` (Error).
     *   **Stable JSON**: Snake-case JSON keys for easy parsing by external tools.
     *   **Exportable Reports**: Save comparison results in `JSON` or `TXT` formats (Batch mode only).
+    *   **Standard Error**: Critical errors and file-level errors in realtime mode are emitted to `stderr`, allowing `stdout` to be piped or redirected cleanly.
 
 ---
 
