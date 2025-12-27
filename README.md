@@ -21,7 +21,7 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
     *   **Hidden Files**: By default, hidden files (those starting with a `.`) are ignored. Use the `--hidden` flag to include them.
     *   **File Types**: Filter the comparison to include only specific file extensions (e.g., `.txt`, `.jpg`).
 *   **Symlink Support**: Configurable handling for symbolic links: `ignore`, `follow` (compare target contents), or `compare` (compare link paths).
-*   **Parallelization Control**: Manually set the number of threads to use in batch mode for fine-grained performance tuning.
+*   **Parallelization Control**: Manually set the number of threads to use in batch mode for fine-grained performance tuning. Includes an internal threshold (128MB) that triggers multi-threaded hashing for individual large files (applies to BLAKE3 internal threading only, not Rayon task parallelism).
 *   **Sorted Output**: All file lists in the output are alphabetically sorted by default for consistent and easy-to-read results. This can be disabled using the `--no-sort` flag for maximum performance.
 *   **Verbose Output**: Option to display the actual cryptographic hash values, exact file sizes, or formatted timestamps for matched and differing files.
 *   **Recursion Control**: Recursively compares subfolders by default. Depth can be limited via `--depth` or disabled with `--no-recursive`.
@@ -110,6 +110,7 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
 *   `-t, --type <EXTENSION>`: Compare only files with the specified extension (e.g., `txt`, `.jpg`). This flag can be used multiple times.
 *   `-i, --ignore <PATTERN>`: Specify a glob pattern to ignore files or directories. This flag can be used multiple times. Automatically respects `.gitignore` rules.
 *   `-j, --threads <COUNT>`: Set the number of threads to use for parallel processing in batch mode. Defaults to the number of available CPU cores.
+    *   *Note*: A size threshold (currently 128MB) determines when individual files use internal BLAKE3 threading. This threshold applies only to internal BLAKE3 threading (not Rayon task parallelism) and may be tuned in future releases.
 *   `-n, --no-sort`: Disable alphabetical sorting of the output. Drastically improves performance on massive directory trees when order is not required.
 
 ### Exit Codes
