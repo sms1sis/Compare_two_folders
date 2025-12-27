@@ -20,7 +20,7 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
     *   **Ignore Patterns**: Automatically respects `.gitignore` rules and supports custom ignore patterns (`--ignore`) to exclude specific files or directories.
     *   **Hidden Files**: By default, hidden files (those starting with a `.`) are ignored. Use the `--hidden` flag to include them.
     *   **File Types**: Filter the comparison to include only specific file extensions (e.g., `.txt`, `.jpg`).
-*   **Symlink Support**: Configurable handling for symbolic links (`ignore`, `follow`, or `compare` targets).
+*   **Symlink Support**: Configurable handling for symbolic links: `ignore`, `follow` (compare target contents), or `compare` (compare link paths).
 *   **Parallelization Control**: Manually set the number of threads to use in batch mode for fine-grained performance tuning.
 *   **Sorted Output**: All file lists in the output are alphabetically sorted by default for consistent and easy-to-read results. This can be disabled using the `--no-sort` flag for maximum performance.
 *   **Verbose Output**: Option to display the actual cryptographic hash values, exact file sizes, or formatted timestamps for matched and differing files.
@@ -101,7 +101,10 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
     *   `0`: Compare only the root directory itself.
     *   `1`: Compare the root directory and its immediate children.
 *   `--no-recursive`: Disable recursive comparison (equivalent to `--depth 1`).
-*   `--symlinks <MODE>`: Handling strategy for symbolic links: `ignore` (default), `follow`, or `compare`.
+*   `--symlinks <MODE>`: Handling strategy for symbolic links:
+    *   `ignore` (default): Skip symbolic links.
+    *   `follow`: Follow symbolic links and compare the target files.
+    *   `compare`: Compare symlink targets (link path), not file contents. Prevents confusion about whether target file contents are hashed.
 *   `-v, --verbose`: Show hash values, file sizes, or timestamps for differences in the output.
 *   `-H, --hidden`: Include hidden files and directories in the comparison. By default, they are ignored.
 *   `-t, --type <EXTENSION>`: Compare only files with the specified extension (e.g., `txt`, `.jpg`). This flag can be used multiple times.
