@@ -1,3 +1,20 @@
+# v4.0.1
+
+Maintenance release focusing on documentation clarity, error handling improvements, and output consistency.
+
+## 🚀 Improvements
+
+*   **Summary Enhancements**: The final summary box now explicitly displays the thread count used (or "Default (N)" if auto-detected).
+*   **Realtime Error Handling**: Errors encountered in Realtime mode are now correctly emitted to `stderr` instead of `stdout`. This ensures that piping standard output does not mix valid comparison data with error messages.
+*   **Documentation**:
+    *   Clarified `--depth` behavior (0 = root only, 1 = immediate children).
+    *   Clarified `--symlinks compare` behavior (compares link paths, not target contents).
+    *   Explicitly documented BLAKE3 internal threading thresholds.
+
+## 🛠 Fixes & Internal
+
+*   **Refactor**: Centralized output formatting logic to reduce code duplication between Realtime and Batch reporting modes.
+
 # v4.0.0
 
 Major release focusing on scriptability, improved defaults, and handling of complex directory structures (symlinks, permissions).
