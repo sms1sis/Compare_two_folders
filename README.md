@@ -115,7 +115,7 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
 ### Exit Codes
 *   `0`: Comparison successful, folders are identical.
 *   `1`: Comparison successful, differences found.
-*   `2`: Runtime error occurred (e.g., permission denied, I/O error).
+*   `2`: Runtime error or file-level errors occurred (e.g., permission denied, I/O error). Any error encountered during processing triggers this code.
 
 ### Examples
 
