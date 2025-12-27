@@ -143,6 +143,56 @@ struct ComparisonResult {
     symlink2: Option<String>,
 }
 
+impl ComparisonResult {
+    fn format_text(&self, config: &Config) -> Result<String> {
+        let mut output = String::new();
+        let (status_colored, file_color) = match self.status.as_str() {
+            "MATCH" => ("MATCH".green(), Color::Green),
+            "DIFF" => ("DIFF".red(), Color::Red),
+            "MISSING" => ("MISSING".blue(), Color::Blue),
+            "EXTRA" => ("EXTRA".blue(), Color::Blue),
+            "ERROR" => ("ERROR".red().on_white(), Color::Red),
+            _ => (self.status.as_str().normal(), Color::White),
+        };
+
+        let file_name = self.file.to_str().context("Invalid file name")?;
+        output.push_str(&format!(
+            "[{}]  {}\n",
+            status_colored,
+            file_name.color(file_color)
+        ));
+
+        if config.verbose {
+            if self.status == "DIFF" {
+                 if let (Some(h1), Some(h2)) = (&self.hash1, &self.hash2) {
+                    output.push_str(&format!("    {}: {}\n", "folder1".dimmed(), format_hashres(h1, config.algo)?));
+                    output.push_str(&format!("    {}: {}\n", "folder2".dimmed(), format_hashres(h2, config.algo)?));
+                } else if let (Some(s1), Some(s2)) = (self.size1, self.size2) {
+                     if s1 != s2 {
+                        output.push_str(&format!("    {}: {}\n", "folder1".dimmed(), format!("{} bytes", s1).cyan()));
+                        output.push_str(&format!("    {}: {}\n", "folder2".dimmed(), format!("{} bytes", s2).cyan()));
+                     } else if let (Some(t1), Some(t2)) = (&self.modified1, &self.modified2) {
+                        if t1 != t2 {
+                             output.push_str(&format!("    {}: {}\n", "folder1".dimmed(), t1.cyan()));
+                             output.push_str(&format!("    {}: {}\n", "folder2".dimmed(), t2.cyan()));
+                        }
+                     } else if let (Some(sym1), Some(sym2)) = (&self.symlink1, &self.symlink2) {
+                        if sym1 != sym2 {
+                            output.push_str(&format!("    {}: -> {}\n", "folder1".dimmed(), sym1.cyan()));
+                            output.push_str(&format!("    {}: -> {}\n", "folder2".dimmed(), sym2.cyan()));
+                        }
+                     }
+                }
+            } else if self.status == "MATCH" {
+                if let Some(h1) = &self.hash1 {
+                    output.push_str(&format!("    {}: {}\n", "in_both".dimmed(), format_hashres(h1, config.algo)?));
+                }
+            }
+        }
+        Ok(output)
+    }
+}
+
 #[derive(PartialEq)]
 enum ExitStatus {
     Success,
@@ -427,47 +477,7 @@ fn print_realtime_result(
     r: &ComparisonResult,
     config: &Config,
 ) -> Result<()> {
-    let (status_colored, file_color) = match r.status.as_str() {
-        "MATCH" => ("MATCH".green(), Color::Green),
-        "DIFF" => ("DIFF".red(), Color::Red),
-        "ERROR" => ("ERROR".red().on_white(), Color::Red),
-        _ => (r.status.as_str().normal(), Color::White),
-    };
-
-    println!(
-        "[{}]  {}",
-        status_colored,
-        r.file.to_str().context("Invalid file name")?.color(file_color)
-    );
-
-    if config.verbose {
-        if r.status == "DIFF" {
-             if let (Some(h1), Some(h2)) = (&r.hash1, &r.hash2) {
-                println!("    {}: {}", "folder1".dimmed(), format_hashres(h1, config.algo)?);
-                println!("    {}: {}", "folder2".dimmed(), format_hashres(h2, config.algo)?);
-            } else if let (Some(s1), Some(s2)) = (r.size1, r.size2) {
-                if s1 != s2 {
-                    println!("    {}: {}", "folder1".dimmed(), format!("{} bytes", s1).cyan());
-                    println!("    {}: {}", "folder2".dimmed(), format!("{} bytes", s2).cyan());
-                } else if let (Some(t1), Some(t2)) = (&r.modified1, &r.modified2) {
-                     if t1 != t2 {
-                         println!("    {}: {}", "folder1".dimmed(), t1.cyan());
-                         println!("    {}: {}", "folder2".dimmed(), t2.cyan());
-                     }
-                } else if let (Some(sym1), Some(sym2)) = (&r.symlink1, &r.symlink2) {
-                    if sym1 != sym2 {
-                        println!("    {}: -> {}", "folder1".dimmed(), sym1.cyan());
-                        println!("    {}: -> {}", "folder2".dimmed(), sym2.cyan());
-                    }
-                }
-            }
-        } else if r.status == "MATCH" {
-             if let Some(h) = &r.hash1 {
-                println!("    {}: {}", "in_both".dimmed(), format_hashres(h, config.algo)?);
-            }
-        }
-    }
-    println!();
+    print!("{}", r.format_text(config)?);
     Ok(())
 }
 
@@ -694,59 +704,7 @@ fn generate_text_report(
     }
 
     for result in results {
-        let (status_colored, file_color) = match result.status.as_str() {
-            "MATCH" => ("MATCH".green(), Color::Green),
-            "DIFF" => ("DIFF".red(), Color::Red),
-            "MISSING" => ("MISSING".blue(), Color::Blue),
-            "EXTRA" => ("EXTRA".blue(), Color::Blue),
-            "ERROR" => ("ERROR".red().on_white(), Color::Red),
-            _ => (result.status.as_str().normal(), Color::White),
-        };
-
-        let file_name = result.file.to_str().context("Invalid file name")?;
-        let line = format!(
-            "[{}]  {}\n",
-            status_colored,
-            file_name.color(file_color)
-        );
-        output.push_str(&line);
-
-        if config.verbose {
-            if result.status == "DIFF" {
-                 if let (Some(h1), Some(h2)) = (&result.hash1, &result.hash2) {
-                    output.push_str(&format!("    {}: {}
-", "folder1".dimmed(), format_hashres(h1, config.algo)?));
-                    output.push_str(&format!("    {}: {}
-", "folder2".dimmed(), format_hashres(h2, config.algo)?));
-                } else if let (Some(s1), Some(s2)) = (result.size1, result.size2) {
-                     if s1 != s2 {
-                        output.push_str(&format!("    {}: {}
-", "folder1".dimmed(), format!("{} bytes", s1).cyan()));
-                        output.push_str(&format!("    {}: {}
-", "folder2".dimmed(), format!("{} bytes", s2).cyan()));
-                     } else if let (Some(t1), Some(t2)) = (&result.modified1, &result.modified2) {
-                        if t1 != t2 {
-                             output.push_str(&format!("    {}: {}
-", "folder1".dimmed(), t1.cyan()));
-                             output.push_str(&format!("    {}: {}
-", "folder2".dimmed(), t2.cyan()));
-                        }
-                     } else if let (Some(sym1), Some(sym2)) = (&result.symlink1, &result.symlink2) {
-                        if sym1 != sym2 {
-                            output.push_str(&format!("    {}: -> {}
-", "folder1".dimmed(), sym1.cyan()));
-                            output.push_str(&format!("    {}: -> {}
-", "folder2".dimmed(), sym2.cyan()));
-                        }
-                     }
-                }
-            } else if result.status == "MATCH" {
-                if let Some(h1) = &result.hash1 {
-                    output.push_str(&format!("    {}: {}
-", "in_both".dimmed(), format_hashres(h1, config.algo)?));
-                }
-            }
-        }
+        output.push_str(&result.format_text(config)?);
     }
     // Summary
     output.push_str("\n");
@@ -765,6 +723,11 @@ fn generate_summary_text(
         "Metadata".to_string()
     } else {
         format!("{:?}", config.algo)
+    };
+    let threads_str = if let Some(t) = config.threads {
+        t.to_string()
+    } else {
+        format!("Default ({})", rayon::current_num_threads())
     };
     let elapsed_str = format!("{:.2?}", elapsed);
 
@@ -799,6 +762,7 @@ fn generate_summary_text(
 
     add_line(&mut output, "Mode", &mode_str, Color::Cyan, Color::Magenta);
     add_line(&mut output, "Algorithm", &algo_str, Color::Cyan, Color::Magenta);
+    add_line(&mut output, "Threads", &threads_str, Color::Cyan, Color::Magenta);
     add_line(&mut output, "Total files checked", &total.to_string(), Color::Cyan, Color::Blue);
     add_line(&mut output, "Missing in Folder2", &missing.to_string(), Color::Cyan, Color::Blue);
     add_line(&mut output, "Extra in Folder2", &extra.to_string(), Color::Cyan, Color::Blue);
