@@ -98,6 +98,8 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
     *   `txt` (default)
     *   `json`
 *   `--depth <DEPTH>`: Maximum recursion depth. Default is infinite.
+    *   `0`: Compare only the root directory itself.
+    *   `1`: Compare the root directory and its immediate children.
 *   `--no-recursive`: Disable recursive comparison (equivalent to `--depth 1`).
 *   `--symlinks <MODE>`: Handling strategy for symbolic links: `ignore` (default), `follow`, or `compare`.
 *   `-v, --verbose`: Show hash values, file sizes, or timestamps for differences in the output.
