@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Instant;
@@ -8,14 +8,17 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use colored::*;
-use indicatif::{ProgressBar, ProgressStyle, ParallelProgressIterator};
+use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::Mmap;
 use rayon::prelude::*;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use chrono::{DateTime, Local};
+use ignore::WalkBuilder;
+use globset::{Glob, GlobSetBuilder};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "snake_case")]
 enum HashAlgo {
     Sha256,
     Blake3,
@@ -28,18 +31,27 @@ enum OutputFormat {
     Json,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "snake_case")]
 enum Mode {
-    /// Processes files sequentially and prints results as they happen. Slower.
+    /// Processes files sequentially and prints results as they happen.
     Realtime,
-    /// Processes files in parallel and prints a report at the end. Faster.
+    /// Processes files in parallel and prints a report at the end.
     Batch,
     /// Compare file size and modification time to skip cryptographic hashing.
     Metadata,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+enum SymlinkMode {
+    #[default]
+    Ignore,
+    Follow,
+    Compare,
+}
+
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None, help_template = "{before-help}{name} {version}\n{author-with-newline}{about-with-newline}\n{usage-heading} {usage} \n\n {all-args} {after-help}")]
+#[command(author, version, about, long_about = None)]
 struct Config {
     /// First folder to compare
     folder1: PathBuf,
@@ -60,9 +72,17 @@ struct Config {
     #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Txt)]
     output_format: OutputFormat,
 
-    /// Enable file comparison in subfolders
-    #[arg(short, long, default_value_t = false)]
-    subfolders: bool,
+    /// Maximum recursion depth (default: infinite)
+    #[arg(long)]
+    depth: Option<usize>,
+
+    /// Disable recursive comparison (equivalent to --depth 1)
+    #[arg(long, conflicts_with = "depth")]
+    no_recursive: bool,
+
+    /// Handling strategy for symbolic links
+    #[arg(long, value_enum, default_value_t = SymlinkMode::Ignore)]
+    symlinks: SymlinkMode,
 
     /// Show hash values for matched and different files
     #[arg(short, long, default_value_t = false)]
@@ -100,6 +120,13 @@ struct FileEntry {
     path: PathBuf,
     size: u64,
     modified: Option<std::time::SystemTime>,
+    symlink_target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ErrorEntry {
+    path: PathBuf,
+    error: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,12 +139,40 @@ struct ComparisonResult {
     size2: Option<u64>,
     modified1: Option<String>,
     modified2: Option<String>,
+    symlink1: Option<String>,
+    symlink2: Option<String>,
 }
 
-fn main() -> Result<()> {
+#[derive(PartialEq)]
+enum ExitStatus {
+    Success,
+    Diff,
+    Error,
+}
+
+fn main() {
     #[cfg(windows)]
-    colored::control::set_virtual_terminal(true).unwrap();
+    colored::control::set_virtual_terminal(true).ok();
+
+    // TTY Detection
+    if !io::stdout().is_terminal() {
+        colored::control::set_override(false);
+    }
     
+    match run() {
+        Ok(status) => match status {
+            ExitStatus::Success => std::process::exit(0),
+            ExitStatus::Diff => std::process::exit(1),
+            ExitStatus::Error => std::process::exit(2),
+        },
+        Err(e) => {
+            eprintln!("Error: {:#}", e);
+            std::process::exit(2);
+        }
+    }
+}
+
+fn run() -> Result<ExitStatus> {
     let start_time = Instant::now();
     let config = Config::parse();
 
@@ -129,11 +184,9 @@ fn main() -> Result<()> {
     }
 
     match config.mode {
-        Mode::Realtime => run_realtime(&config, start_time)?,
-        Mode::Batch | Mode::Metadata => run_batch(&config, start_time)?,
+        Mode::Realtime => run_realtime(&config, start_time),
+        Mode::Batch | Mode::Metadata => run_batch(&config, start_time),
     }
-
-    Ok(())
 }
 
 //=============================================================================
@@ -158,45 +211,70 @@ fn compare_files(
         time2_str = Some(DateTime::<Local>::from(t2).format("%Y-%m-%d %H:%M:%S").to_string());
     }
 
-    // Short-circuit: Check file sizes and times first using cached metadata
+    // 1. Symlink Comparison
+    if config.symlinks == SymlinkMode::Compare {
+        let s1 = entry1.symlink_target.as_deref();
+        let s2 = entry2.symlink_target.as_deref();
+        
+        // If both are symlinks, compare targets
+        if s1.is_some() && s2.is_some() {
+            let matches = s1 == s2;
+            return Ok(ComparisonResult {
+                file: rel_path,
+                status: if matches { "MATCH".to_string() } else { "DIFF".to_string() },
+                hash1: None, hash2: None,
+                size1: None, size2: None, // Sizes irrelevant for symlink structure check usually
+                modified1: time1_str, modified2: time2_str,
+                symlink1: entry1.symlink_target.clone(),
+                symlink2: entry2.symlink_target.clone(),
+            });
+        }
+        // If one is symlink and other is file, it's a diff (type mismatch)
+        if s1.is_some() != s2.is_some() {
+            return Ok(ComparisonResult {
+                file: rel_path,
+                status: "DIFF".to_string(), // Type mismatch
+                hash1: None, hash2: None,
+                size1: None, size2: None,
+                modified1: time1_str, modified2: time2_str,
+                symlink1: entry1.symlink_target.clone(),
+                symlink2: entry2.symlink_target.clone(),
+            });
+        }
+    }
+
+    // 2. Metadata/Size Short-circuit
     if entry1.size != entry2.size {
         return Ok(ComparisonResult {
             file: rel_path,
             status: "DIFF".to_string(),
-            hash1: None,
-            hash2: None,
-            size1,
-            size2,
-            modified1: time1_str,
-            modified2: time2_str,
+            hash1: None, hash2: None,
+            size1, size2,
+            modified1: time1_str, modified2: time2_str,
+            symlink1: None, symlink2: None,
         });
     } else if config.mode == Mode::Metadata {
         if entry1.modified != entry2.modified {
             return Ok(ComparisonResult {
                 file: rel_path,
                 status: "DIFF".to_string(),
-                hash1: None,
-                hash2: None,
-                size1,
-                size2,
-                modified1: time1_str,
-                modified2: time2_str,
+                hash1: None, hash2: None,
+                size1, size2,
+                modified1: time1_str, modified2: time2_str,
+                symlink1: None, symlink2: None,
             });
         }
-        // Sizes and times match
         return Ok(ComparisonResult {
             file: rel_path,
             status: "MATCH".to_string(),
-            hash1: None,
-            hash2: None,
-            size1,
-            size2,
-            modified1: time1_str,
-            modified2: time2_str,
+            hash1: None, hash2: None,
+            size1, size2,
+            modified1: time1_str, modified2: time2_str,
+            symlink1: None, symlink2: None,
         });
     }
 
-    // Compute hashes for the pair of files in parallel
+    // 3. Compute hashes
     let (h1_res, h2_res) = rayon::join(
         || compute_hashes(&entry1.path, config.algo),
         || compute_hashes(&entry2.path, config.algo),
@@ -217,12 +295,10 @@ fn compare_files(
     Ok(ComparisonResult {
         file: rel_path,
         status: status.to_string(),
-        hash1: h1,
-        hash2: h2,
-        size1,
-        size2,
-        modified1: time1_str,
-        modified2: time2_str,
+        hash1: h1, hash2: h2,
+        size1, size2,
+        modified1: time1_str, modified2: time2_str,
+        symlink1: None, symlink2: None,
     })
 }
 
@@ -230,25 +306,41 @@ fn compare_files(
 // Real-time (Sequential) Mode
 //=============================================================================
 
-fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
-    println!("{}", "==============================================".bright_blue());
-    println!("  Folder Comparison Utility (Real-time Mode)");
-    println!("{}", "==============================================".bright_blue());
+fn run_realtime(config: &Config, start_time: Instant) -> Result<ExitStatus> {
+    if io::stdout().is_terminal() {
+        println!("{}", "==============================================".bright_blue());
+        println!("  Folder Comparison Utility (Real-time Mode)");
+        println!("{}", "==============================================".bright_blue());
+    }
 
-    let mut files1 = collect_files(
+    let (mut files1, errors1) = collect_files(
         &config.folder1,
-        config.subfolders,
+        config.depth,
+        config.no_recursive,
         config.hidden,
         &config.types,
         &config.ignore,
+        config.symlinks,
     )?;
-    let files2 = collect_files(
+    
+    // Print errors immediately in realtime mode
+    for e in &errors1 {
+        print_error_entry(e, "folder1");
+    }
+
+    let (files2, errors2) = collect_files(
         &config.folder2,
-        config.subfolders,
+        config.depth,
+        config.no_recursive,
         config.hidden,
         &config.types,
         &config.ignore,
+        config.symlinks,
     )?;
+
+    for e in &errors2 {
+        print_error_entry(e, "folder2");
+    }
 
     // Sort if not disabled
     if !config.no_sort {
@@ -279,21 +371,10 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
                 _ => (),
             }
 
-            print_realtime_result(
-                &result.status,
-                &rel_path,
-                result.hash1.as_ref(),
-                result.hash2.as_ref(),
-                result.size1,
-                result.size2,
-                result.modified1.as_deref(),
-                result.modified2.as_deref(),
-                config.algo,
-                config.verbose
-            )?;
+            print_realtime_result(&result, config)?;
         } else {
             missing += 1;
-            print_realtime_result("MISSING", &rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
+            print_realtime_missing("MISSING", &rel_path, config.verbose)?;
         }
     }
 
@@ -304,65 +385,85 @@ fn run_realtime(config: &Config, start_time: Instant) -> Result<()> {
     }
 
     for rel_path in sorted_extra {
-        print_realtime_result("EXTRA", &rel_path, None, None, None, None, None, None, config.algo, config.verbose)?;
+        print_realtime_missing("EXTRA", &rel_path, config.verbose)?;
     }
 
     let elapsed = start_time.elapsed();
     let total = files1.len() + extra;
+    let total_errors = errors1.len() + errors2.len();
 
-    print_summary(total, matches, diffs, missing, extra, elapsed, config)?;
+    print_summary(total, matches, diffs, missing, extra, total_errors, elapsed, config)?;
 
+    if total_errors > 0 {
+        Ok(ExitStatus::Error)
+    } else if diffs > 0 || missing > 0 || extra > 0 {
+        Ok(ExitStatus::Diff)
+    } else {
+        Ok(ExitStatus::Success)
+    }
+}
+
+fn print_error_entry(e: &ErrorEntry, source: &str) {
+    println!(
+        "[{}]{} ({}: {})",
+        "ERROR".red().on_white(),
+        e.path.display(),
+        source,
+        e.error
+    );
+}
+
+fn print_realtime_missing(status: &str, file: &Path, _verbose: bool) -> Result<()> {
+    let (status_colored, file_color) = match status {
+        "MISSING" => ("MISSING".blue(), Color::Blue),
+        "EXTRA" => ("EXTRA".blue(), Color::Blue),
+         _ => (status.normal(), Color::White),
+    };
+    println!("[{}]  {}", status_colored, file.to_str().unwrap_or("???").color(file_color));
     Ok(())
 }
 
 fn print_realtime_result(
-    status: &str,
-    file: &Path,
-    h1: Option<&HashResult>,
-    h2: Option<&HashResult>,
-    size1: Option<u64>,
-    size2: Option<u64>,
-    time1: Option<&str>,
-    time2: Option<&str>,
-    algo: HashAlgo,
-    verbose: bool,
+    r: &ComparisonResult,
+    config: &Config,
 ) -> Result<()> {
-    let (status_colored, file_color) = match status {
+    let (status_colored, file_color) = match r.status.as_str() {
         "MATCH" => ("MATCH".green(), Color::Green),
         "DIFF" => ("DIFF".red(), Color::Red),
-        "MISSING" => ("MISSING".blue(), Color::Blue),
-        "EXTRA" => ("EXTRA".blue(), Color::Blue),
         "ERROR" => ("ERROR".red().on_white(), Color::Red),
-        _ => (status.normal(), Color::White),
+        _ => (r.status.as_str().normal(), Color::White),
     };
 
-    let file_name = file.to_str().context("Invalid file name")?;
     println!(
         "[{}]  {}",
         status_colored,
-        file_name.color(file_color)
+        r.file.to_str().context("Invalid file name")?.color(file_color)
     );
 
-    if verbose {
-        if status == "DIFF" {
-            if let (Some(h1), Some(h2)) = (h1, h2) {
-                println!("    {}: {}", "folder1".dimmed(), format_hashres(h1, algo)?);
-                println!("    {}: {}", "folder2".dimmed(), format_hashres(h2, algo)?);
-            } else if let (Some(s1), Some(s2)) = (size1, size2) {
+    if config.verbose {
+        if r.status == "DIFF" {
+             if let (Some(h1), Some(h2)) = (&r.hash1, &r.hash2) {
+                println!("    {}: {}", "folder1".dimmed(), format_hashres(h1, config.algo)?);
+                println!("    {}: {}", "folder2".dimmed(), format_hashres(h2, config.algo)?);
+            } else if let (Some(s1), Some(s2)) = (r.size1, r.size2) {
                 if s1 != s2 {
                     println!("    {}: {}", "folder1".dimmed(), format!("{} bytes", s1).cyan());
                     println!("    {}: {}", "folder2".dimmed(), format!("{} bytes", s2).cyan());
-                } else if let (Some(t1), Some(t2)) = (time1, time2) {
-                    // Sizes match, so it must be timestamps
-                    if t1 != t2 {
+                } else if let (Some(t1), Some(t2)) = (&r.modified1, &r.modified2) {
+                     if t1 != t2 {
                          println!("    {}: {}", "folder1".dimmed(), t1.cyan());
                          println!("    {}: {}", "folder2".dimmed(), t2.cyan());
+                     }
+                } else if let (Some(sym1), Some(sym2)) = (&r.symlink1, &r.symlink2) {
+                    if sym1 != sym2 {
+                        println!("    {}: -> {}", "folder1".dimmed(), sym1.cyan());
+                        println!("    {}: -> {}", "folder2".dimmed(), sym2.cyan());
                     }
                 }
             }
-        } else if status == "MATCH" {
-            if let Some(h) = h1 {
-                println!("    {}: {}", "in_both".dimmed(), format_hashres(h, algo)?);
+        } else if r.status == "MATCH" {
+             if let Some(h) = &r.hash1 {
+                println!("    {}: {}", "in_both".dimmed(), format_hashres(h, config.algo)?);
             }
         }
     }
@@ -376,10 +477,14 @@ fn print_summary(
     diffs: usize,
     missing: usize,
     extra: usize,
+    errors: usize,
     elapsed: std::time::Duration,
     config: &Config,
 ) -> Result<()> {
-    let summary_lines = generate_summary_text(total, matches, diffs, missing, extra, elapsed, config);
+    // If we are not a terminal, maybe skip the fancy box?
+    // But for now, we keep the box but rely on colors being disabled if needed.
+    
+    let summary_lines = generate_summary_text(total, matches, diffs, missing, extra, errors, elapsed, config);
     for line in summary_lines {
         println!("{}", line);
     }
@@ -391,36 +496,45 @@ fn print_summary(
 // Batch (Parallel) Mode
 //=============================================================================
 
-fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
-    println!("{}", "==============================================".bright_blue());
-    println!("  Folder File Comparison Utility (Batch Mode)");
-    println!("{}", "==============================================".bright_blue());
-    println!(); // Empty line after banner
-    // 1. Collect files from both directories in parallel
-    let (files1, files2) = rayon::join(
+fn run_batch(config: &Config, start_time: Instant) -> Result<ExitStatus> {
+    if io::stdout().is_terminal() {
+        println!("{}", "==============================================".bright_blue());
+        println!("  Folder File Comparison Utility (Batch Mode)");
+        println!("{}", "==============================================".bright_blue());
+        println!(); 
+    }
+
+    // 1. Collect files
+    let (res1, res2) = rayon::join(
         || {
             collect_files(
                 &config.folder1,
-                config.subfolders,
+                config.depth,
+                config.no_recursive,
                 config.hidden,
                 &config.types,
                 &config.ignore,
+                config.symlinks,
             )
         },
         || {
             collect_files(
                 &config.folder2,
-                config.subfolders,
+                config.depth,
+                config.no_recursive,
                 config.hidden,
                 &config.types,
                 &config.ignore,
+                config.symlinks,
             )
         },
     );
-    let files1 = files1?;
-    let files2 = files2?;
+    let (files1, errors1) = res1?;
+    let (files2, errors2) = res2?;
 
-    // Create maps from relative path -> FileEntry for easy lookup later
+    let total_errors = errors1.len() + errors2.len();
+
+    // Create maps
     let files1_map: HashMap<PathBuf, FileEntry> = files1
         .into_par_iter()
         .map(|f| (f.path.strip_prefix(&config.folder1).unwrap().to_path_buf(), f))
@@ -433,67 +547,69 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
     let set1_paths: HashSet<PathBuf> = files1_map.keys().cloned().collect();
     let set2_paths: HashSet<PathBuf> = files2_map.keys().cloned().collect();
 
-    // 2. Identify files that exist in both directories (potential MATCH or DIFF)
+    // 2. Common files
     let common_paths: Vec<PathBuf> = set1_paths
         .intersection(&set2_paths)
         .cloned()
         .collect();
 
-    let pb = ProgressBar::new(common_paths.len() as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} [Elap>{elapsed_precise}] [ {bar:40.cyan/blue} ] {pos}/{len} (Rema>{eta})")?
-            .progress_chars("#>- ")
-    );
-    pb.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(10));
+    // Progress Bar only if terminal
+    let pb = if io::stderr().is_terminal() {
+        let pb = ProgressBar::new(common_paths.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [Elap>{elapsed_precise}] [ {bar:40.cyan/blue} ] {pos}/{len} (Rema>{eta})")?
+                .progress_chars("#>- ")
+        );
+        pb.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(10));
+        Some(pb)
+    } else {
+        None
+    };
 
-    // 3. Process common files in parallel (the only ones that need hashing)
+    // 3. Process common files
     let mut all_results: Vec<ComparisonResult> = common_paths
         .par_iter()
-        .progress_with(pb.clone())
         .map(|rel_path| {
+            if let Some(ref p) = pb { p.inc(1); }
             let entry1 = files1_map.get(rel_path).unwrap();
             let entry2 = files2_map.get(rel_path).unwrap();
             compare_files(rel_path.clone(), entry1, entry2, config)
         })
         .collect::<Result<Vec<_>>>()?;
 
-    pb.finish_with_message("Comparison complete");
+    if let Some(ref p) = pb { p.finish_with_message("Comparison complete"); }
 
-    // 4. Add MISSING files (from set1 but not set2) - no hashing needed
+    // 4. Add MISSING
     for rel_path in set1_paths.difference(&set2_paths) {
         all_results.push(ComparisonResult {
             file: rel_path.clone(),
             status: "MISSING".to_string(),
-            hash1: None,
-            hash2: None,
-            size1: None,
-            size2: None,
-            modified1: None,
-            modified2: None,
+            hash1: None, hash2: None,
+            size1: None, size2: None,
+            modified1: None, modified2: None,
+            symlink1: None, symlink2: None,
         });
     }
 
-    // 5. Add EXTRA files (from set2 but not set1) - no hashing needed
+    // 5. Add EXTRA
     for rel_path in set2_paths.difference(&set1_paths) {
         all_results.push(ComparisonResult {
             file: rel_path.clone(),
             status: "EXTRA".to_string(),
-            hash1: None,
-            hash2: None,
-            size1: None,
-            size2: None,
-            modified1: None,
-            modified2: None,
+            hash1: None, hash2: None,
+            size1: None, size2: None,
+            modified1: None, modified2: None,
+            symlink1: None, symlink2: None,
         });
     }
 
-    // 6. Sort results alphabetically by file path (unless no_sort is set)
+    // 6. Sort
     if !config.no_sort {
         all_results.sort_by(|a, b| a.file.cmp(&b.file));
     }
 
-    // 7. Count results
+    // 7. Count
     let mut matches = 0;
     let mut diffs = 0;
     let mut missing = 0;
@@ -510,51 +626,72 @@ fn run_batch(config: &Config, start_time: Instant) -> Result<()> {
     let total = all_results.len();
     let elapsed = start_time.elapsed();
 
-    // 8. Generate report (no changes needed here)
+    // 8. Generate report
     match config.output_format {
         OutputFormat::Txt => {
             let output = generate_text_report(
                 &all_results,
+                &errors1,
+                &errors2,
                 total,
                 matches,
                 diffs,
                 missing,
                 extra,
+                total_errors,
                 elapsed,
-                config.algo,
                 config,
             )?;
-            write_report(output, &config.output_folder, "report.txt")?;
+            write_report(output, &config.output_folder, "report.txt", "")?;
         }
         OutputFormat::Json => {
             let output = generate_json_report(
                 &all_results,
+                &errors1,
+                &errors2,
                 total,
                 matches,
                 diffs,
                 missing,
                 extra,
+                total_errors,
                 elapsed,
             )?;
-            write_report(output, &config.output_folder, "report.json")?;
+            write_report(output, &config.output_folder, "report.json", "")?;
         }
     }
 
-    Ok(())
+    if total_errors > 0 {
+        Ok(ExitStatus::Error)
+    } else if diffs > 0 || missing > 0 || extra > 0 {
+        Ok(ExitStatus::Diff)
+    } else {
+        Ok(ExitStatus::Success)
+    }
 }
 
 fn generate_text_report(
     results: &[ComparisonResult],
+    errors1: &[ErrorEntry],
+    errors2: &[ErrorEntry],
     total: usize,
     matches: usize,
     diffs: usize,
     missing: usize,
     extra: usize,
+    errors: usize,
     elapsed: std::time::Duration,
-    algo: HashAlgo,
     config: &Config,
 ) -> Result<String> {
     let mut output = String::new();
+
+    // Print Errors First
+    for e in errors1 {
+        output.push_str(&format!("[{}] {} (folder1: {})\n", "ERROR".red().on_white(), e.path.display(), e.error));
+    }
+    for e in errors2 {
+        output.push_str(&format!("[{}] {} (folder2: {})\n", "ERROR".red().on_white(), e.path.display(), e.error));
+    }
 
     for result in results {
         let (status_colored, file_color) = match result.status.as_str() {
@@ -576,44 +713,53 @@ fn generate_text_report(
 
         if config.verbose {
             if result.status == "DIFF" {
-                if let (Some(h1), Some(h2)) = (&result.hash1, &result.hash2) {
-                    let line1 = format!("    {}: {}\n", "folder1".dimmed(), format_hashres(h1, algo)?);
-                    let line2 = format!("    {}: {}\n", "folder2".dimmed(), format_hashres(h2, algo)?);
-                    output.push_str(&line1);
-                    output.push_str(&line2);
+                 if let (Some(h1), Some(h2)) = (&result.hash1, &result.hash2) {
+                    output.push_str(&format!("    {}: {}
+", "folder1".dimmed(), format_hashres(h1, config.algo)?));
+                    output.push_str(&format!("    {}: {}
+", "folder2".dimmed(), format_hashres(h2, config.algo)?));
                 } else if let (Some(s1), Some(s2)) = (result.size1, result.size2) {
                      if s1 != s2 {
-                        let line1 = format!("    {}: {}\n", "folder1".dimmed(), format!("{} bytes", s1).cyan());
-                        let line2 = format!("    {}: {}\n", "folder2".dimmed(), format!("{} bytes", s2).cyan());
-                        output.push_str(&line1);
-                        output.push_str(&line2);
+                        output.push_str(&format!("    {}: {}
+", "folder1".dimmed(), format!("{} bytes", s1).cyan()));
+                        output.push_str(&format!("    {}: {}
+", "folder2".dimmed(), format!("{} bytes", s2).cyan()));
                      } else if let (Some(t1), Some(t2)) = (&result.modified1, &result.modified2) {
-                        // Sizes match, check timestamps
                         if t1 != t2 {
-                             let line1 = format!("    {}: {}\n", "folder1".dimmed(), t1.cyan());
-                             let line2 = format!("    {}: {}\n", "folder2".dimmed(), t2.cyan());
-                             output.push_str(&line1);
-                             output.push_str(&line2);
+                             output.push_str(&format!("    {}: {}
+", "folder1".dimmed(), t1.cyan()));
+                             output.push_str(&format!("    {}: {}
+", "folder2".dimmed(), t2.cyan()));
+                        }
+                     } else if let (Some(sym1), Some(sym2)) = (&result.symlink1, &result.symlink2) {
+                        if sym1 != sym2 {
+                            output.push_str(&format!("    {}: -> {}
+", "folder1".dimmed(), sym1.cyan()));
+                            output.push_str(&format!("    {}: -> {}
+", "folder2".dimmed(), sym2.cyan()));
                         }
                      }
                 }
             } else if result.status == "MATCH" {
                 if let Some(h1) = &result.hash1 {
-                    let line = format!("    {}: {}\n", "in_both".dimmed(), format_hashres(h1, algo)?);
-                    output.push_str(&line);
+                    output.push_str(&format!("    {}: {}
+", "in_both".dimmed(), format_hashres(h1, config.algo)?));
                 }
             }
         }
-        output.push_str("\n");
     }
-
-    let summary_text = generate_summary_text(total, matches, diffs, missing, extra, elapsed, config);
+    // Summary
+    output.push_str("\n");
+    let summary_text = generate_summary_text(total, matches, diffs, missing, extra, errors, elapsed, config);
     output.push_str(&summary_text.join("\n"));
 
     Ok(output)
 }
 
-fn generate_summary_text(total: usize, matches: usize, diffs: usize, missing: usize, extra: usize, elapsed: std::time::Duration, config: &Config) -> Vec<String> {
+fn generate_summary_text(
+    total: usize, matches: usize, diffs: usize, missing: usize, extra: usize, errors: usize, 
+    elapsed: std::time::Duration, config: &Config
+) -> Vec<String> {
     let mode_str = format!("{:?}", config.mode);
     let algo_str = if config.mode == Mode::Metadata {
         "Metadata".to_string()
@@ -622,14 +768,11 @@ fn generate_summary_text(total: usize, matches: usize, diffs: usize, missing: us
     };
     let elapsed_str = format!("{:.2?}", elapsed);
 
-    // The total width of the content area INSIDE the box borders
     let content_width = 47;
     let mut output = Vec::new();
 
-    // --- Top border ---
     output.push(format!("{}{}{}", "╔".bright_blue(), "═".repeat(content_width).bright_blue(), "╗".bright_blue()));
 
-    // --- Title ---
     let title = "Summary";
     let padding_total = content_width.saturating_sub(title.len());
     let padding_start = padding_total / 2;
@@ -642,31 +785,18 @@ fn generate_summary_text(total: usize, matches: usize, diffs: usize, missing: us
         "║".bright_blue()
     ));
 
-    // --- Separator ---
     output.push(format!("{}{}{}", "╠".bright_blue(), "═".repeat(content_width).bright_blue(), "╣".bright_blue()));
 
-    // --- Helper for content lines ---
     let add_line = |vec: &mut Vec<String>, label: &str, value: &str, label_color: Color, value_color: Color| {
-        // Create the colored parts with a 2-space left margin
         let colored_line = format!("  {} : {}",
             format!("{:<22}", label).bold().color(label_color),
             value.bold().color(value_color)
         );
-
-        // Calculate padding based on the UNCOLORED length to fill the remaining space
-        let uncolored_len = 2 + 22 + 3 + value.len(); // 2-margin + 22-label + 3-" : " + value
+        let uncolored_len = 2 + 22 + 3 + value.len();
         let padding = " ".repeat(content_width.saturating_sub(uncolored_len));
-
-        // Assemble the full line with borders
-        vec.push(format!("{}{}{}{}",
-            "║".bright_blue(),
-            colored_line,
-            padding,
-            "║".bright_blue()
-        ));
+        vec.push(format!("{}{}{}{}", "║".bright_blue(), colored_line, padding, "║".bright_blue()));
     };
 
-    // --- Add all lines ---
     add_line(&mut output, "Mode", &mode_str, Color::Cyan, Color::Magenta);
     add_line(&mut output, "Algorithm", &algo_str, Color::Cyan, Color::Magenta);
     add_line(&mut output, "Total files checked", &total.to_string(), Color::Cyan, Color::Blue);
@@ -674,9 +804,11 @@ fn generate_summary_text(total: usize, matches: usize, diffs: usize, missing: us
     add_line(&mut output, "Extra in Folder2", &extra.to_string(), Color::Cyan, Color::Blue);
     add_line(&mut output, "Matches", &matches.to_string(), Color::Cyan, Color::Green);
     add_line(&mut output, "Differences", &diffs.to_string(), Color::Cyan, Color::Red);
+    if errors > 0 {
+        add_line(&mut output, "Errors", &errors.to_string(), Color::Cyan, Color::Red);
+    }
     add_line(&mut output, "Time taken", &elapsed_str, Color::Cyan, Color::Yellow);
 
-    // --- Bottom border ---
     output.push(format!("{}{}{}", "╚".bright_blue(), "═".repeat(content_width).bright_blue(), "╝".bright_blue()));
 
     output
@@ -684,11 +816,14 @@ fn generate_summary_text(total: usize, matches: usize, diffs: usize, missing: us
 
 fn generate_json_report(
     results: &[ComparisonResult],
+    errors1: &[ErrorEntry],
+    errors2: &[ErrorEntry],
     total: usize,
     matches: usize,
     diffs: usize,
     missing: usize,
     extra: usize,
+    errors: usize,
     elapsed: std::time::Duration,
 ) -> Result<String> {
     let summary = serde_json::json!({
@@ -697,28 +832,29 @@ fn generate_json_report(
         "differences": diffs,
         "missing_in_folder2": missing,
         "extra_in_folder2": extra,
+        "errors": errors,
         "time_taken": format!("{:.2?}", elapsed),
     });
 
     let output = serde_json::json!({
         "summary": summary,
+        "folder1_errors": errors1,
+        "folder2_errors": errors2,
         "results": results,
     });
 
     Ok(serde_json::to_string_pretty(&output)?)
 }
 
-fn write_report(
-    output: String,
-    output_folder: &Option<PathBuf>,
-    filename: &str,
-) -> Result<()> {
+fn write_report(output: String, output_folder: &Option<PathBuf>, filename: &str, _file_path: &str) -> Result<()> {
     if let Some(output_folder) = output_folder {
         fs::create_dir_all(output_folder)?;
         let report_path = output_folder.join(filename);
         let mut file = File::create(&report_path)?;
         file.write_all(output.as_bytes())?;
-        println!("Report saved to {}", report_path.display());
+        if io::stdout().is_terminal() {
+            println!("Report saved to {}", report_path.display());
+        }
     } else {
         for line in output.lines() {
             println!("{}", line);
@@ -727,24 +863,31 @@ fn write_report(
     Ok(())
 }
 
-//=============================================================================
-// Common Helper Functions
-//=============================================================================
-
-use globset::{Glob, GlobSetBuilder};
-use ignore::WalkBuilder;
-
 fn collect_files(
     dir: &Path,
-    subfolders: bool,
+    depth: Option<usize>,
+    no_recursive: bool,
     hidden: bool,
     types: &Option<Vec<String>>,
     ignore_patterns: &Option<Vec<String>>,
-) -> Result<Vec<FileEntry>> {
+    symlink_mode: SymlinkMode,
+) -> Result<(Vec<FileEntry>, Vec<ErrorEntry>)> {
     let mut walk_builder = WalkBuilder::new(dir);
     walk_builder.hidden(!hidden);
-    if !subfolders {
+    
+    // Recursion logic
+    if no_recursive {
         walk_builder.max_depth(Some(1));
+    } else if let Some(d) = depth {
+        walk_builder.max_depth(Some(d));
+    }
+    // Default is now infinite recursion (unless ignored by max_depth default of WalkBuilder? 
+    // WalkBuilder default is recursive.
+
+    // Symlink logic
+    match symlink_mode {
+        SymlinkMode::Follow => { walk_builder.follow_links(true); },
+        _ => { walk_builder.follow_links(false); },
     }
 
     let custom_ignore_set = if let Some(patterns) = ignore_patterns {
@@ -762,18 +905,29 @@ fn collect_files(
     });
 
     let (tx, rx) = mpsc::channel();
+    // For errors
+    let (tx_err, rx_err) = mpsc::channel();
+    
     let walker = walk_builder.build_parallel();
 
     std::thread::spawn(move || {
         walker.run(|| {
             let tx = tx.clone();
+            let tx_err = tx_err.clone();
             let type_filter = type_filter.clone();
             let custom_ignore_set = custom_ignore_set.clone();
 
             Box::new(move |result| {
                 let entry = match result {
                     Ok(e) => e,
-                    Err(_) => return ignore::WalkState::Continue,
+                    Err(err) => {
+                        // Capture permission denied etc.
+                        let _ = tx_err.send(ErrorEntry {
+                             path: PathBuf::from("?"),
+                             error: err.to_string(),
+                         });
+                        return ignore::WalkState::Continue;
+                    },
                 };
 
                 if let Some(ref set) = custom_ignore_set {
@@ -782,8 +936,27 @@ fn collect_files(
                     }
                 }
 
-                if !entry.file_type().map_or(false, |ft| ft.is_file()) {
-                    return ignore::WalkState::Continue;
+                let ft = match entry.file_type() {
+                    Some(ft) => ft,
+                    None => return ignore::WalkState::Continue,
+                };
+
+                let is_symlink = ft.is_symlink();
+                let is_file = ft.is_file();
+
+                // Logic based on symlink mode
+                // If Ignore: skip symlinks
+                // If Follow: symlinks that point to files come as is_file()=true (usually).
+                // If Compare: we want the symlink itself.
+                
+                let should_include = match symlink_mode {
+                    SymlinkMode::Ignore => is_file, // Skip symlinks
+                    SymlinkMode::Follow => is_file, // Followed links appear as files
+                    SymlinkMode::Compare => is_file || is_symlink,
+                };
+
+                if !should_include {
+                     return ignore::WalkState::Continue;
                 }
 
                 if let Some(ref exts) = type_filter {
@@ -797,12 +970,19 @@ fn collect_files(
                     }
                 }
 
-                // Collect metadata during walk
+                let mut symlink_target = None;
+                if is_symlink && symlink_mode == SymlinkMode::Compare {
+                    if let Ok(target) = fs::read_link(entry.path()) {
+                        symlink_target = Some(target.to_string_lossy().to_string());
+                    }
+                }
+
                 if let Ok(meta) = entry.metadata() {
                     let entry_data = FileEntry {
                         path: entry.path().to_path_buf(),
                         size: meta.len(),
                         modified: meta.modified().ok(),
+                        symlink_target,
                     };
                     let _ = tx.send(entry_data);
                 }
@@ -813,18 +993,17 @@ fn collect_files(
     });
 
     let final_files: Vec<FileEntry> = rx.into_iter().collect();
-    Ok(final_files)
+    let final_errors: Vec<ErrorEntry> = rx_err.into_iter().collect();
+    Ok((final_files, final_errors))
 }
-
-
 
 fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
     let metadata = fs::metadata(path)?;
     let len = metadata.len();
     
-    // The 32KB Hybrid Threshold: std::fs::read is faster for tiny files.
-    // memmap2 wins for anything > 32KB by utilizing the OS Page Cache directly.
     const MMAP_THRESHOLD: u64 = 32 * 1024; 
+    // Optimized threshold for threading: 128MB
+    const RAYON_THRESHOLD: u64 = 128 * 1024 * 1024;
 
     let mut sha256_hasher = if matches!(algo, HashAlgo::Sha256 | HashAlgo::Both) {
         Some(Sha256::new())
@@ -837,7 +1016,6 @@ fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
         None
     };
 
-    // Zero-Byte File Safety: Handle empty files early to avoid mmap errors.
     if len == 0 {
         return Ok(HashResult {
             sha256: sha256_hasher.map(|h| format!("{:x}", h.finalize())),
@@ -851,20 +1029,22 @@ fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
             h.update(&data);
         }
         if let Some(bh) = blake3_hasher.as_mut() {
-            bh.update_rayon(&data);
+            // Always single thread for small files
+            bh.update(&data);
         }
     } else {
         let f = File::open(path)?;
-        // SAFETY: Mmap is unsafe because the underlying file can be truncated by 
-        // another process during hashing, which would trigger a SIGBUS error. 
-        // We assume files are not being truncated externally during the comparison.
         let mmap = unsafe { Mmap::map(&f)? };
         
         if let Some(h) = sha256_hasher.as_mut() {
             h.update(&mmap);
         }
         if let Some(bh) = blake3_hasher.as_mut() {
-            bh.update_rayon(&mmap);
+            if len > RAYON_THRESHOLD {
+                bh.update_rayon(&mmap);
+            } else {
+                bh.update(&mmap);
+            }
         }
     }
 

@@ -3,3 +3,11 @@ GEMINI.md
 
 # Ignore build artifacts
 target/
+
+# Ignore cmpf outputs
+report.txt
+report.json
+
+# OS generated
+.DS_Store
+Thumbs.db
