@@ -44,7 +44,7 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
 > **To achieve maximum performance (~7s vs 200s):**
 > * **Add a Process Exclusion:** Add `cmpf.exe` to your security software's exclusion list.
 > * **Add a Path Exclusion:** Exclude the specific directories you are comparing.
-> * **Temporary Disable:** Follow the [manual steps](https://www.kapilarya.com/temporarily-disable-windows-security-in-windows-11) below to disable monitoring during the run.
+> * **Temporary Disable:** Follow the [manual steps](https://docs.sisense.com/win/SisenseWin/disabling-windows-defender-real-time-protection.htm) below to disable monitoring during the run.
 
 ---
 
