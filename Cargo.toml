@@ -28,3 +28,6 @@ opt-level = 3              # (Default, but good to be explicit)
 lto = "fat"                # Maximum whole-program optimization
 codegen-units = 1          # Maximum code optimization at the cost of compile time
 strip = "symbols"          # Reduce binary size
+
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1"
