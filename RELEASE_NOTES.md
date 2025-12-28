@@ -1,3 +1,11 @@
+# v4.0.2
+
+Maintenance release optimizing memory allocation for static builds.
+
+## 🚀 Improvements
+
+*   **Static Build Optimization**: Added `mimalloc` as the global allocator for `musl` targets. This significantly improves performance and memory usage when running statically linked binaries (e.g., in Alpine Linux containers).
+
 # v4.0.1
 
 Maintenance release focusing on documentation clarity, error handling improvements, and output consistency.
