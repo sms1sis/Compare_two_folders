@@ -71,6 +71,47 @@ These instructions will get you a copy of the project up and running on your loc
 
 ---
 
+## 🔐 Verification
+
+To ensure the integrity of your download, we provide a `SHA256SUMS.txt` file for every release. You can use this to verify that the binary you downloaded has not been corrupted or tampered with.
+
+> [!IMPORTANT]
+> Make sure you download both the binary and the `SHA256SUMS.txt` file to the same directory before running these commands.
+
+### Linux (Standard Distros)
+For Ubuntu, Arch, Termux, etc.:
+```sh
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+### Linux (Minimal/Alpine/BusyBox)
+For environments where `sha256sum` lacks extended flags:
+```sh
+sha256sum -c SHA256SUMS.txt
+```
+*Note: This may print error messages for missing files (the other binaries you didn't download). Look for "OK" next to your downloaded file.*
+
+### macOS
+```sh
+shasum -a 256 -c SHA256SUMS.txt
+```
+
+### Windows
+
+**PowerShell:**
+```powershell
+Get-FileHash .\cmpf.exe -Algorithm SHA256
+```
+*Compare the output hash manually with the entry in `SHA256SUMS.txt`.*
+
+**Command Prompt:**
+```cmd
+certutil -hashfile cmpf.exe SHA256
+```
+*Compare the output hash manually with the entry in `SHA256SUMS.txt`.*
+
+---
+
 ## 💡 Usage
 
 The `cmpf` utility is run from the command line, requiring two folder paths as primary arguments.
