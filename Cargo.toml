@@ -2,11 +2,12 @@
 name = "cmpf"
 version = "4.0.2"
 edition = "2024"
-authors = ["sms1sis sadimsajid2004@gmail.com"]
-license = "MIT"
-description = "A tool to compare the contents of two folders"
+authors = ["sms1sis <sadimsajid2004@gmail.com>"]
+license = "GPL-3.0-or-later"
+description = "A fast command-line tool to compare the contents of two folders"
 repository = "https://github.com/sms1sis/Compare_two_folders"
-categories = ["command-line-utilities"]
+categories = ["command-line-utilities", "filesystem"]
+keywords = ["compare", "folder", "diff", "directory", "sync"]
 
 [dependencies]
 sha2 = "0.10"
