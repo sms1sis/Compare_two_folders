@@ -40,6 +40,8 @@ jobs:
       - name: Install Cross
         if: matrix.use_cross
         uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
 
       - name: Build
         run: |
