@@ -102,10 +102,10 @@ enum Commands {
 
 fn main() {
     #[cfg(windows)]
-    colored::control::set_virtual_terminal(true).ok();
+    control::set_virtual_terminal(true).ok();
 
     if !std::io::stdout().is_terminal() {
-        colored::control::set_override(false);
+        control::set_override(false);
     }
     
     match run() {

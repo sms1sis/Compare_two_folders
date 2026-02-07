@@ -5,7 +5,7 @@ use std::time::Duration;
 use colored::*;
 use anyhow::Result;
 
-use crate::models::{ComparisonResult, ErrorEntry, OutputFormat, Mode, HashAlgo};
+use crate::models::{ComparisonResult, ErrorEntry, Mode, HashAlgo};
 
 pub fn print_realtime_missing(status: &str, file: &Path, _verbose: bool) -> Result<()> {
     let (status_colored, file_color) = match status {
@@ -30,9 +30,6 @@ pub fn print_error_entry(e: &ErrorEntry, source: &str) {
 pub struct ReportConfig {
     pub mode: Mode,
     pub algo: HashAlgo,
-    pub output_format: OutputFormat,
-    pub output_folder: Option<PathBuf>,
-    pub no_sort: bool,
     pub threads: Option<usize>,
     pub verbose: bool,
 }

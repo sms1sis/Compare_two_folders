@@ -243,9 +243,6 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
     let report_conf = ReportConfig {
         mode: Mode::Batch,
         algo: snapshot.algo,
-        output_format: config.output_format,
-        output_folder: None,
-        no_sort: false,
         threads: config.threads,
         verbose: config.verbose,
     };

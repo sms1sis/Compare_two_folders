@@ -266,9 +266,6 @@ fn run_realtime(config: &CompareConfig, start_time: Instant) -> Result<ExitStatu
     let report_conf = ReportConfig {
         mode: config.mode,
         algo: config.algo,
-        output_format: config.output_format,
-        output_folder: None,
-        no_sort: config.no_sort,
         threads: config.threads,
         verbose: config.verbose,
     };
@@ -411,9 +408,6 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
     let report_conf = ReportConfig {
         mode: config.mode,
         algo: config.algo,
-        output_format: config.output_format,
-        output_folder: config.output_folder.clone(),
-        no_sort: config.no_sort,
         threads: config.threads,
         verbose: config.verbose,
     };

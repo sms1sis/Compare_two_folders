@@ -109,7 +109,7 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
         None
     };
 
-    let mut sync_actions: Vec<ComparisonResult> = common_paths
+    let sync_actions: Vec<ComparisonResult> = common_paths
         .par_iter()
         .filter_map(|rel_path| {
             if let Some(ref p) = pb { p.inc(1); }
@@ -176,7 +176,7 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
     }
 
     // Files only in destination (DELETE from destination)
-    if config.delete_extraneous {
+    if config.delete_extraneous && !config.no_delete {
         for rel_path in dest_paths.difference(&source_paths) {
             actions.push(ComparisonResult {
                 file: rel_path.clone(),
@@ -254,9 +254,6 @@ Applying synchronization actions...");
     let report_conf = ReportConfig {
         mode: Mode::Batch, // Sync operates like batch internally
         algo: config.algo,
-        output_format: crate::models::OutputFormat::Txt, // Always text for sync summary
-        output_folder: None,
-        no_sort: false,
         threads: config.threads,
         verbose: false, // Sync summary is not verbose on hashes
     };
