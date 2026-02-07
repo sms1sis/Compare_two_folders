@@ -35,6 +35,7 @@ pub struct CompareConfig {
     pub ignore: Option<Vec<String>>,
     pub threads: Option<usize>,
     pub no_sort: bool,
+    pub diff_cmd: Option<String>,
 }
 
 pub fn run_compare(config: CompareConfig) -> Result<ExitStatus> {
@@ -221,6 +222,27 @@ fn run_realtime(config: &CompareConfig, start_time: Instant) -> Result<ExitStatu
             }
 
             print!("{}", result.format_text(config.verbose, config.algo)?);
+
+            if let Some(diff_cmd_str) = &config.diff_cmd {
+                if result.status == "DIFF" {
+                    // Execute external diff command
+                    // This is a basic implementation; more robust parsing/handling might be needed for complex commands
+                    let mut parts = diff_cmd_str.split_whitespace();
+                    if let Some(command) = parts.next() {
+                        let args: Vec<&str> = parts.collect();
+                        let file1_path = config.folder1.join(&rel_path);
+                        let file2_path = config.folder2.join(&rel_path);
+
+                        eprintln!("Launching diff: {} {} {}", diff_cmd_str, file1_path.display(), file2_path.display());
+                        
+                        let _ = std::process::Command::new(command)
+                            .args(args)
+                            .arg(&file1_path)
+                            .arg(&file2_path)
+                            .spawn(); // Use spawn to not block the main process
+                    }
+                }
+            }
         } else {
             missing += 1;
             print_realtime_missing("MISSING", &rel_path, config.verbose)?;

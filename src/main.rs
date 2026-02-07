@@ -57,6 +57,9 @@ struct Cli {
     threads: Option<usize>,
     #[arg(short = 'n', long, default_value_t = false, global = true)]
     no_sort: bool,
+    /// Command to use for external diff (e.g., "code --diff", "vimdiff")
+    #[arg(long, value_name = "COMMAND", global = true)]
+    diff_cmd: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -116,7 +119,8 @@ fn run() -> Result<ExitStatus> {
                 folder1, folder2, mode: cli.mode, algo: cli.algo, output_folder: cli.output_folder,
                 output_format: cli.output_format, depth: cli.depth, no_recursive: cli.no_recursive,
                 symlinks: cli.symlinks, verbose: cli.verbose, hidden: cli.hidden,
-                types: cli.types, ignore: cli.ignore, threads: cli.threads, no_sort: cli.no_sort
+                types: cli.types, ignore: cli.ignore, threads: cli.threads, no_sort: cli.no_sort,
+                diff_cmd: cli.diff_cmd,
             })
         },
         Some(Commands::Snapshot { folder, output }) => {
@@ -145,8 +149,8 @@ fn run() -> Result<ExitStatus> {
                     mode: cli.mode, algo: cli.algo, output_folder: cli.output_folder,
                     output_format: cli.output_format, depth: cli.depth, no_recursive: cli.no_recursive,
                     symlinks: cli.symlinks, verbose: cli.verbose, hidden: cli.hidden,
-                    types: cli.types, ignore: cli.ignore, threads: cli.threads, no_sort: cli.no_sort
-                })
+                    types: cli.types, ignore: cli.ignore, threads: cli.threads, no_sort: cli.no_sort,
+                    diff_cmd: cli.diff_cmd,                })
             } else {
                 use clap::CommandFactory;
                 let mut cmd = Cli::command();
