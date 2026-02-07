@@ -1,4 +1,4 @@
-name: Pre-release
+name: Release
 
 on:
   workflow_dispatch:
@@ -63,7 +63,7 @@ jobs:
           path: ${{ matrix.artifact_name }}
 
   release:
-    name: Create Pre-release
+    name: Create Release
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -72,18 +72,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Get version from Cargo.toml
+        id: get_version
+        run: |
+          VERSION=$(grep '^version =' Cargo.toml | cut -d '"' -f 2)
+          echo "VERSION=v$VERSION" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
-      - name: Create Pre-release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          prerelease: true
-          tag_name: prerelease-${{ github.run_id }}
-          name: Pre-release ${{ github.run_id }}
+          prerelease: false
+          make_latest: true
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          name: Release ${{ steps.get_version.outputs.VERSION }}
           files: artifacts/*
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
