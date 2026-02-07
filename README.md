@@ -1,11 +1,14 @@
 # cmpf: Folder File Comparison Utility
 
-A high-performance command-line utility implemented in **Rust** for efficiently comparing files across two directories. `cmpf` helps developers, system administrators, and anyone dealing with file synchronization or verification tasks to quickly identify matches, differences, missing, and extra files based on their names and cryptographic hashes.
+A high-performance command-line utility implemented in **Rust** for efficiently comparing and synchronizing files across two directories. `cmpf` helps developers, system administrators, and anyone dealing with file synchronization or verification tasks to quickly identify matches, differences, missing, and extra files based on their names and cryptographic hashes, or even synchronize them.
 
 ---
 
 ## ✨ Features
 
+*   **Bidirectional Synchronization**: Synchronize files and directories between two locations. Supports dry-runs and optional deletion of extraneous files.
+*   **Snapshot & Verify Data Integrity**: Create a cryptographic manifest of a directory's state at a point in time, and later verify the directory against this manifest to detect changes, corruption, or tampering.
+*   **External Diff Tool Integration**: Seamlessly launch your preferred external diff viewer (e.g., `code --diff`, `vimdiff`) for direct inspection of differing files.
 *   **Dual Directory Comparison**: Compare files present in two specified directories.
 *   **Flexible Hashing Algorithms**: Utilize robust cryptographic hashing for content comparison:
     *   **Blake3 (Default)**: A modern, extremely fast, and highly secure cryptographic hash function.
@@ -21,12 +24,12 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
     *   **Hidden Files**: By default, hidden files (those starting with a `.`) are ignored. Use the `--hidden` flag to include them.
     *   **File Types**: Filter the comparison to include only specific file extensions (e.g., `.txt`, `.jpg`).
 *   **Symlink Support**: Configurable handling for symbolic links: `ignore`, `follow` (compare target contents), or `compare` (compare link paths).
-*   **Parallelization Control**: Manually set the number of threads to use in batch mode for fine-grained performance tuning. Includes an internal threshold (128MB) that triggers multi-threaded hashing for individual large files (applies to BLAKE3 internal threading only, not Rayon task parallelism).
+*   **Parallelization Control**: Manually set the number of threads to use for parallel processing. Defaults to the number of available CPU cores.
 *   **Sorted Output**: All file lists in the output are alphabetically sorted by default for consistent and easy-to-read results. This can be disabled using the `--no-sort` flag for maximum performance.
 *   **Verbose Output**: Option to display the actual cryptographic hash values, exact file sizes, or formatted timestamps for matched and differing files.
 *   **Recursion Control**: Recursively compares subfolders by default. Depth can be limited via `--depth` or disabled with `--no-recursive`.
 *   **Colorized Terminal Output**: Intuitive color-coding (green for matches, red for differences, blue for missing/extra files) enhances readability in real-time feedback and final reports. Colors are automatically disabled in non-interactive terminals.
-*   **Script-Friendly**: 
+*   **Script-Friendly**:
     *   **Exit Codes**: Returns `0` (Match), `1` (Diff), or `2` (Error).
     *   **Stable JSON**: Snake-case JSON keys for easy parsing by external tools.
     *   **Exportable Reports**: Save comparison results in `JSON` or `TXT` formats (Batch mode only).
@@ -114,29 +117,28 @@ certutil -hashfile cmpf.exe SHA256
 
 ## 💡 Usage
 
-The `cmpf` utility is run from the command line, requiring two folder paths as primary arguments.
+The `cmpf` utility now uses subcommands to organize its functionality. Global options can be applied to all subcommands.
 
 ```sh
-./target/release/cmpf <FOLDER1_PATH> <FOLDER2_PATH> [OPTIONS]
+./target/release/cmpf [GLOBAL_OPTIONS] <COMMAND> [COMMAND_OPTIONS]
 ```
 
-### Arguments
+**Legacy Comparison Mode**: For backward compatibility, `cmpf` still supports the old `cmpf <FOLDER1_PATH> <FOLDER2_PATH> [GLOBAL_OPTIONS]` syntax, which defaults to the `compare` subcommand.
 
-*   `<FOLDER1_PATH>`: The path to the first directory for comparison.
-*   `<FOLDER2_PATH>`: The path to the second directory for comparison.
+### Global Options
 
-### Options
+These options can be applied before any command to affect its behavior:
 
-*   `-m, --mode <MODE>`: Specify the comparison mode.
+*   `-m, --mode <MODE>`: Specify the comparison mode for `compare` or `verify` commands.
     *   `batch` (default): Processes files in parallel, generating a report at the end.
     *   `realtime`: Processes files sequentially, providing immediate output.
     *   `metadata`: Compare file size and modification time to skip cryptographic hashing for maximum speed.
 *   `-a, --algo <ALGORITHM>`: Choose the hashing algorithm for content comparison.
     *   `blake3` (default): Uses the high-performance Blake3 algorithm.
     *   `sha256`: Uses the SHA-256 algorithm.
-    *   `both`: Uses both Blake3 and SHA-256 for comparison.
-*   `-o, --output-folder <OUTPUT_FOLDER>`: (Batch mode only) Specify a folder to save the comparison report. If omitted, the report is printed to stdout.
-*   `-f, --output-format <FORMAT>`: (Batch mode only) Define the format for the output report.
+    *   `both`: Uses both Blake3 and Sha256 for comparison.
+*   `-o, --output-folder <OUTPUT_FOLDER>`: Specify a folder to save the comparison report. If omitted, the report is printed to stdout.
+*   `-f, --output-format <FORMAT>`: Define the format for the output report.
     *   `txt` (default)
     *   `json`
 *   `--depth <DEPTH>`: Maximum recursion depth. Default is infinite.
@@ -151,9 +153,33 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
 *   `-H, --hidden`: Include hidden files and directories in the comparison. By default, they are ignored.
 *   `-t, --type <EXTENSION>`: Compare only files with the specified extension (e.g., `txt`, `.jpg`). This flag can be used multiple times.
 *   `-i, --ignore <PATTERN>`: Specify a glob pattern to ignore files or directories. This flag can be used multiple times. Automatically respects `.gitignore` rules.
-*   `-j, --threads <COUNT>`: Set the number of threads to use for parallel processing in batch mode. Defaults to the number of available CPU cores.
-    *   *Note*: A size threshold (currently 128MB) determines when individual files use internal BLAKE3 threading. This threshold applies only to internal BLAKE3 threading (not Rayon task parallelism) and may be tuned in future releases.
+*   `-j, --threads <COUNT>`: Set the number of threads to use for parallel processing. Defaults to the number of available CPU cores.
 *   `-n, --no-sort`: Disable alphabetical sorting of the output. Drastically improves performance on massive directory trees when order is not required.
+*   `--diff-cmd <COMMAND>`: Command to use for external diff (e.g., `"code --diff"`, `"vimdiff"`) for differing files in `compare` mode.
+
+### Commands
+
+#### `compare <FOLDER1_PATH> <FOLDER2_PATH>`
+
+Standard comparison between two folders. This is the default command if no subcommand is specified and two folder paths are provided as arguments. All [Global Options](#global-options) apply.
+
+#### `snapshot <FOLDER_PATH>`
+
+Creates a cryptographic manifest (snapshot) of a folder's current state. The snapshot includes file paths, sizes, modification times, and cryptographic hashes.
+
+*   `--output <PATH>`: Path to save the snapshot file. If omitted, prints to stdout.
+
+#### `verify <FOLDER_PATH> <SNAPSHOT_FILE>`
+
+Verifies a folder against a previously created snapshot file. It will report any differences, missing files (from snapshot), or extra files (not in snapshot).
+
+#### `sync <SOURCE_PATH> <DESTINATION_PATH>`
+
+Synchronizes files and directories from the source to the destination.
+
+*   `--dry-run` (default): Performs a dry run, showing what changes *would* be made without actually modifying anything. Use `--dry-run false` or `-D false` to disable.
+*   `--delete-extraneous`: Deletes files in the destination that do not exist in the source.
+*   `--no-delete`: Prevents any file deletions (conflicts with `--delete-extraneous`).
 
 ### Exit Codes
 *   `0`: Comparison successful, folders are identical.
@@ -162,39 +188,54 @@ The `cmpf` utility is run from the command line, requiring two folder paths as p
 
 ### Examples
 
-1.  **Basic Comparison (Batch Mode, Blake3, Recursive):**
+1.  **Basic Comparison (Legacy Mode - same as `cmpf compare`)**:
     ```sh
     ./target/release/cmpf ./my_folder_a ./my_folder_b
     ```
 
-2.  **Rapid Metadata Comparison (Ideal for initial checks of large trees):**
+2.  **Basic Comparison (Explicit Command)**:
     ```sh
-    ./target/release/cmpf ./linux-kernel-v1 ./linux-kernel-v2 -m metadata
+    ./target/release/cmpf compare ./my_folder_a ./my_folder_b
     ```
 
-3.  **Realtime Comparison, including Hidden Files:**
+3.  **Rapid Metadata Comparison (Global Option)**:
     ```sh
-    ./target/release/cmpf ./my_project_v1 ./my_project_v2 -m realtime -H
+    ./target/release/cmpf -m metadata compare ./linux-kernel-v1 ./linux-kernel-v2
     ```
 
-4.  **Batch Comparison, Only Comparing `.rs` and `.toml` Files:**
+4.  **Realtime Comparison with Hidden Files (Global Options)**:
     ```sh
-    ./target/release/cmpf ./src_v1 ./src_v2 -t rs -t toml
+    ./target/release/cmpf -m realtime -H compare ./my_project_v1 ./my_project_v2
     ```
 
-5.  **Non-Recursive Comparison:**
+5.  **Batch Comparison, Specific File Types (Global Options)**:
     ```sh
-    ./target/release/cmpf ./folder1 ./folder2 --no-recursive
+    ./target/release/cmpf -t rs -t toml compare ./src_v1 ./src_v2
     ```
 
-6.  **Comparison including Symlink Targets:**
+6.  **Comparison with External Diff Tool**:
     ```sh
-    ./target/release/cmpf ./lib_v1 ./lib_v2 --symlinks compare
+    ./target/release/cmpf --diff-cmd "code --diff" compare ./my_work_v1 ./my_work_v2
     ```
 
-7.  **High-Performance Batch with Verbose Output, Saving to JSON:**
+7.  **Create a Snapshot**:
     ```sh
-    ./target/release/cmpf /path/to/backup /path/to/current -a sha256 -v -o ./reports -f json
+    ./target/release/cmpf snapshot ./my_project --output my_project.snapshot.json
+    ```
+
+8.  **Verify a Folder against a Snapshot**:
+    ```sh
+    ./target/release/cmpf verify ./my_project my_project.snapshot.json
+    ```
+
+9.  **Perform a Dry Run Synchronization**:
+    ```sh
+    ./target/release/cmpf sync ./source_folder ./dest_folder --dry-run
+    ```
+
+10. **Synchronize and Delete Extraneous Files**:
+    ```sh
+    ./target/release/cmpf sync ./source_folder ./dest_folder --dry-run false --delete-extraneous
     ```
 
 ---
