@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use std::io::{self, IsTerminal};

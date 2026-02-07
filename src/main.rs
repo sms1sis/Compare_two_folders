@@ -7,16 +7,18 @@ mod utils;
 mod report;
 mod compare;
 mod snapshot;
+mod sync;
 
 use std::path::PathBuf;
 use std::io::IsTerminal;
 use clap::{Parser, Subcommand};
-use colored::*;
+use colored::control;
 use anyhow::Result;
 
 use crate::models::{HashAlgo, OutputFormat, Mode, SymlinkMode};
 use crate::compare::{run_compare, CompareConfig, ExitStatus};
 use crate::snapshot::{create_snapshot, verify_snapshot, SnapshotConfig, VerifyConfig};
+use crate::sync::{run_sync, SyncConfig};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -80,12 +82,21 @@ enum Commands {
         folder: PathBuf,
         snapshot: PathBuf,
     },
-    /// Sync changes from source to destination (Not Implemented)
+    /// Sync changes from source to destination
     Sync {
+        /// Source folder
         source: PathBuf,
+        /// Destination folder
         destination: PathBuf,
-        #[arg(long)]
+        /// Perform a dry run without making any changes
+        #[arg(long, default_value_t = true)]
         dry_run: bool,
+        /// Delete extraneous files in the destination that are not in the source
+        #[arg(long, default_value_t = false)]
+        delete_extraneous: bool,
+        /// Do not delete files, only copy
+        #[arg(long, conflicts_with = "delete_extraneous")]
+        no_delete: bool,
     },
 }
 
@@ -137,9 +148,13 @@ fn run() -> Result<ExitStatus> {
                 output_format: cli.output_format, verbose: cli.verbose
             })
         },
-        Some(Commands::Sync { .. }) => {
-            println!("Sync feature is not yet implemented.");
-            Ok(ExitStatus::Success)
+        Some(Commands::Sync { source, destination, dry_run, delete_extraneous, no_delete }) => {
+            run_sync(SyncConfig {
+                source, destination, dry_run, delete_extraneous, no_delete,
+                algo: cli.algo, depth: cli.depth, no_recursive: cli.no_recursive,
+                symlinks: cli.symlinks, hidden: cli.hidden, types: cli.types,
+                ignore: cli.ignore, threads: cli.threads,
+            })
         },
         None => {
             // Default to Compare with legacy args
