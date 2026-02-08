@@ -150,7 +150,9 @@ impl ComparisonResult {
                         ));
                     }
                 }
-            } else if self.status == "MATCH" && let Some(h1) = &self.hash1 {
+            } else if self.status == "MATCH"
+                && let Some(h1) = &self.hash1
+            {
                 output.push_str(&format!(
                     "    {}: {}
 ",

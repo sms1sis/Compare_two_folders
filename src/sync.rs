@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use crate::compare::ExitStatus;
 use crate::models::{ComparisonResult, FileEntry, HashAlgo, Mode, SymlinkMode};
-use crate::report::{generate_summary_text, print_error_entry, ReportConfig, SummaryData};
+use crate::report::{ReportConfig, SummaryData, generate_summary_text, print_error_entry};
 use crate::utils::{collect_files, compute_hashes};
 
 pub struct SyncConfig {
@@ -320,10 +320,10 @@ Applying synchronization actions..."
 
     let summary_data = SummaryData {
         total: total_actions,
-        matches: 0, // Matches are not counted as actions
-        diffs: updated_count, // Diffs are updates
+        matches: 0,             // Matches are not counted as actions
+        diffs: updated_count,   // Diffs are updates
         missing: created_count, // Missing are creations
-        extra: deleted_count, // Extra are deletions
+        extra: deleted_count,   // Extra are deletions
         errors: total_errors,
         elapsed,
     };

@@ -10,8 +10,8 @@ use std::time::Instant;
 
 use crate::models::{ComparisonResult, FileEntry, HashAlgo, Mode, OutputFormat, SymlinkMode};
 use crate::report::{
-    generate_json_report, generate_summary_text, generate_text_report, print_error_entry,
-    print_realtime_missing, write_report, ReportConfig, SummaryData,
+    ReportConfig, SummaryData, generate_json_report, generate_summary_text, generate_text_report,
+    print_error_entry, print_realtime_missing, write_report,
 };
 use crate::utils::{collect_files, compute_hashes};
 

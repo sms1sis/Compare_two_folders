@@ -13,7 +13,7 @@ use crate::compare::ExitStatus;
 use crate::models::{
     ComparisonResult, FileEntry, HashAlgo, HashResult, Mode, OutputFormat, SymlinkMode,
 };
-use crate::report::{generate_json_report, generate_text_report, ReportConfig, SummaryData};
+use crate::report::{ReportConfig, SummaryData, generate_json_report, generate_text_report};
 use crate::utils::{collect_files, compute_hashes};
 
 #[derive(Serialize, Deserialize)]
@@ -342,9 +342,7 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
             &summary_data,
             &report_conf,
         )?,
-        OutputFormat::Json => {
-            generate_json_report(&results, &[], &current_errors, &summary_data)?
-        }
+        OutputFormat::Json => generate_json_report(&results, &[], &current_errors, &summary_data)?,
     };
 
     println!("{}", report);
