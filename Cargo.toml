@@ -23,7 +23,6 @@ ignore = "0.4"
 globset = "0.4"
 chrono = "0.4.42"
 memmap2 = "0.9"
-generic-array = "0.14.9"
 
 [profile.release]
 opt-level = 3              # (Default, but good to be explicit)

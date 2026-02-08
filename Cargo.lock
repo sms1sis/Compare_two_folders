@@ -218,7 +218,6 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
- "generic-array",
  "globset",
  "ignore",
  "indicatif",
