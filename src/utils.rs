@@ -1,21 +1,21 @@
-use std::path::{Path, PathBuf};
+use anyhow::Result;
+use globset::{Glob, GlobSetBuilder};
+use ignore::WalkBuilder;
+use memmap2::Mmap;
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::collections::HashSet;
-use anyhow::Result;
-use sha2::{Digest, Sha256};
-use memmap2::Mmap;
-use ignore::WalkBuilder;
-use globset::{Glob, GlobSetBuilder};
 
-use crate::models::{HashResult, HashAlgo, FileEntry, ErrorEntry, SymlinkMode};
+use crate::models::{ErrorEntry, FileEntry, HashAlgo, HashResult, SymlinkMode};
 
 pub fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
     let metadata = fs::metadata(path)?;
     let len = metadata.len();
-    
-    const MMAP_THRESHOLD: u64 = 32 * 1024; 
+
+    const MMAP_THRESHOLD: u64 = 32 * 1024;
     const RAYON_THRESHOLD: u64 = 128 * 1024 * 1024;
 
     let mut sha256_hasher = if matches!(algo, HashAlgo::Sha256 | HashAlgo::Both) {
@@ -47,7 +47,7 @@ pub fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
     } else {
         let f = File::open(path)?;
         let mmap = unsafe { Mmap::map(&f)? };
-        
+
         if let Some(h) = sha256_hasher.as_mut() {
             h.update(&mmap);
         }
@@ -77,7 +77,7 @@ pub fn collect_files(
 ) -> Result<(Vec<FileEntry>, Vec<ErrorEntry>)> {
     let mut walk_builder = WalkBuilder::new(dir);
     walk_builder.hidden(!hidden);
-    
+
     if no_recursive {
         walk_builder.max_depth(Some(1));
     } else if let Some(d) = depth {
@@ -85,8 +85,12 @@ pub fn collect_files(
     }
 
     match symlink_mode {
-        SymlinkMode::Follow => { walk_builder.follow_links(true); },
-        _ => { walk_builder.follow_links(false); },
+        SymlinkMode::Follow => {
+            walk_builder.follow_links(true);
+        }
+        _ => {
+            walk_builder.follow_links(false);
+        }
     }
 
     let custom_ignore_set = if let Some(patterns) = ignore_patterns {
@@ -100,12 +104,14 @@ pub fn collect_files(
     };
 
     let type_filter: Option<HashSet<String>> = types.as_ref().map(|exts| {
-        exts.iter().map(|ext| ext.trim_start_matches('.').to_lowercase()).collect()
+        exts.iter()
+            .map(|ext| ext.trim_start_matches('.').to_lowercase())
+            .collect()
     });
 
     let (tx, rx) = mpsc::channel();
     let (tx_err, rx_err) = mpsc::channel();
-    
+
     let walker = walk_builder.build_parallel();
 
     std::thread::spawn(move || {
@@ -120,17 +126,17 @@ pub fn collect_files(
                     Ok(e) => e,
                     Err(err) => {
                         let _ = tx_err.send(ErrorEntry {
-                             path: PathBuf::from("?"),
-                             error: err.to_string(),
-                         });
-                        return ignore::WalkState::Continue;
-                    },
-                };
-
-                if let Some(ref set) = custom_ignore_set {
-                    if set.is_match(entry.path()) {
+                            path: PathBuf::from("?"),
+                            error: err.to_string(),
+                        });
                         return ignore::WalkState::Continue;
                     }
+                };
+
+                if let Some(ref set) = custom_ignore_set
+                    && set.is_match(entry.path())
+                {
+                    return ignore::WalkState::Continue;
                 }
 
                 let ft = match entry.file_type() {
@@ -148,25 +154,25 @@ pub fn collect_files(
                 };
 
                 if !should_include {
-                     return ignore::WalkState::Continue;
+                    return ignore::WalkState::Continue;
                 }
 
-                if let Some(ref exts) = type_filter {
-                    if !entry
+                if let Some(ref exts) = type_filter
+                    && !entry
                         .path()
                         .extension()
                         .and_then(|s| s.to_str())
-                        .map_or(false, |s| exts.contains(&s.to_lowercase()))
-                    {
-                        return ignore::WalkState::Continue;
-                    }
+                        .is_some_and(|s| exts.contains(&s.to_lowercase()))
+                {
+                    return ignore::WalkState::Continue;
                 }
 
                 let mut symlink_target = None;
-                if is_symlink && matches!(symlink_mode, SymlinkMode::Compare) {
-                    if let Ok(target) = fs::read_link(entry.path()) {
-                        symlink_target = Some(target.to_string_lossy().to_string());
-                    }
+                if is_symlink
+                    && matches!(symlink_mode, SymlinkMode::Compare)
+                    && let Ok(target) = fs::read_link(entry.path())
+                {
+                    symlink_target = Some(target.to_string_lossy().to_string());
                 }
 
                 if let Ok(meta) = entry.metadata() {
@@ -178,7 +184,7 @@ pub fn collect_files(
                     };
                     let _ = tx.send(entry_data);
                 }
-                
+
                 ignore::WalkState::Continue
             })
         });

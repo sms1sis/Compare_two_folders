@@ -2,26 +2,35 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-mod models;
-mod utils;
-mod report;
 mod compare;
+mod models;
+mod report;
 mod snapshot;
 mod sync;
+mod utils;
 
-use std::path::PathBuf;
-use std::io::IsTerminal;
+#[cfg(test)]
+mod tests;
+
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use colored::control;
-use anyhow::Result;
+use std::io::IsTerminal;
+use std::path::PathBuf;
 
-use crate::models::{HashAlgo, OutputFormat, Mode, SymlinkMode};
-use crate::compare::{run_compare, CompareConfig, ExitStatus};
-use crate::snapshot::{create_snapshot, verify_snapshot, SnapshotConfig, VerifyConfig};
-use crate::sync::{run_sync, SyncConfig};
+use crate::compare::{CompareConfig, ExitStatus, run_compare};
+use crate::models::{HashAlgo, Mode, OutputFormat, SymlinkMode};
+use crate::snapshot::{SnapshotConfig, VerifyConfig, create_snapshot, verify_snapshot};
+use crate::sync::{SyncConfig, run_sync};
 
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(
+    author,
+    version,
+    about,
+    long_about = None,
+    override_usage = "cmpf [COMMAND] [FOLDER1] [FOLDER2] [OPTIONS]"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -67,10 +76,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Standard comparison between two folders
-    Compare {
-        folder1: PathBuf,
-        folder2: PathBuf,
-    },
+    Compare { folder1: PathBuf, folder2: PathBuf },
     /// Create a snapshot of a folder's state
     Snapshot {
         folder: PathBuf,
@@ -78,10 +84,7 @@ enum Commands {
         output: Option<PathBuf>,
     },
     /// Verify a folder against a previously created snapshot
-    Verify {
-        folder: PathBuf,
-        snapshot: PathBuf,
-    },
+    Verify { folder: PathBuf, snapshot: PathBuf },
     /// Sync changes from source to destination
     Sync {
         /// Source folder
@@ -107,7 +110,7 @@ fn main() {
     if !std::io::stdout().is_terminal() {
         control::set_override(false);
     }
-    
+
     match run() {
         Ok(status) => match status {
             ExitStatus::Success => std::process::exit(0),
@@ -125,47 +128,88 @@ fn run() -> Result<ExitStatus> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Compare { folder1, folder2 }) => {
-            run_compare(CompareConfig {
-                folder1, folder2, mode: cli.mode, algo: cli.algo, output_folder: cli.output_folder,
-                output_format: cli.output_format, depth: cli.depth, no_recursive: cli.no_recursive,
-                symlinks: cli.symlinks, verbose: cli.verbose, hidden: cli.hidden,
-                types: cli.types, ignore: cli.ignore, threads: cli.threads, no_sort: cli.no_sort,
-                diff_cmd: cli.diff_cmd,
-            })
-        },
+        Some(Commands::Compare { folder1, folder2 }) => run_compare(CompareConfig {
+            folder1,
+            folder2,
+            mode: cli.mode,
+            algo: cli.algo,
+            output_folder: cli.output_folder,
+            output_format: cli.output_format,
+            depth: cli.depth,
+            no_recursive: cli.no_recursive,
+            symlinks: cli.symlinks,
+            verbose: cli.verbose,
+            hidden: cli.hidden,
+            types: cli.types,
+            ignore: cli.ignore,
+            threads: cli.threads,
+            no_sort: cli.no_sort,
+            diff_cmd: cli.diff_cmd,
+        }),
         Some(Commands::Snapshot { folder, output }) => {
             create_snapshot(SnapshotConfig {
-                folder, output, algo: cli.algo, depth: cli.depth, no_recursive: cli.no_recursive,
-                hidden: cli.hidden, types: cli.types, ignore: cli.ignore, symlinks: cli.symlinks,
-                threads: cli.threads
+                folder,
+                output,
+                algo: cli.algo,
+                depth: cli.depth,
+                no_recursive: cli.no_recursive,
+                hidden: cli.hidden,
+                types: cli.types,
+                ignore: cli.ignore,
+                symlinks: cli.symlinks,
+                threads: cli.threads,
             })?;
             Ok(ExitStatus::Success)
-        },
-        Some(Commands::Verify { folder, snapshot }) => {
-            verify_snapshot(VerifyConfig {
-                folder, snapshot_path: snapshot, threads: cli.threads, 
-                output_format: cli.output_format, verbose: cli.verbose
-            })
-        },
-        Some(Commands::Sync { source, destination, dry_run, delete_extraneous, no_delete }) => {
-            run_sync(SyncConfig {
-                source, destination, dry_run, delete_extraneous, no_delete,
-                algo: cli.algo, depth: cli.depth, no_recursive: cli.no_recursive,
-                symlinks: cli.symlinks, hidden: cli.hidden, types: cli.types,
-                ignore: cli.ignore, threads: cli.threads,
-            })
-        },
+        }
+        Some(Commands::Verify { folder, snapshot }) => verify_snapshot(VerifyConfig {
+            folder,
+            snapshot_path: snapshot,
+            threads: cli.threads,
+            output_format: cli.output_format,
+            verbose: cli.verbose,
+        }),
+        Some(Commands::Sync {
+            source,
+            destination,
+            dry_run,
+            delete_extraneous,
+            no_delete,
+        }) => run_sync(SyncConfig {
+            source,
+            destination,
+            dry_run,
+            delete_extraneous,
+            no_delete,
+            algo: cli.algo,
+            depth: cli.depth,
+            no_recursive: cli.no_recursive,
+            symlinks: cli.symlinks,
+            hidden: cli.hidden,
+            types: cli.types,
+            ignore: cli.ignore,
+            threads: cli.threads,
+        }),
         None => {
             // Default to Compare with legacy args
             if let (Some(f1), Some(f2)) = (cli.folder1, cli.folder2) {
                 run_compare(CompareConfig {
-                    folder1: f1, folder2: f2,
-                    mode: cli.mode, algo: cli.algo, output_folder: cli.output_folder,
-                    output_format: cli.output_format, depth: cli.depth, no_recursive: cli.no_recursive,
-                    symlinks: cli.symlinks, verbose: cli.verbose, hidden: cli.hidden,
-                    types: cli.types, ignore: cli.ignore, threads: cli.threads, no_sort: cli.no_sort,
-                    diff_cmd: cli.diff_cmd,                })
+                    folder1: f1,
+                    folder2: f2,
+                    mode: cli.mode,
+                    algo: cli.algo,
+                    output_folder: cli.output_folder,
+                    output_format: cli.output_format,
+                    depth: cli.depth,
+                    no_recursive: cli.no_recursive,
+                    symlinks: cli.symlinks,
+                    verbose: cli.verbose,
+                    hidden: cli.hidden,
+                    types: cli.types,
+                    ignore: cli.ignore,
+                    threads: cli.threads,
+                    no_sort: cli.no_sort,
+                    diff_cmd: cli.diff_cmd,
+                })
             } else {
                 use clap::CommandFactory;
                 let mut cmd = Cli::command();

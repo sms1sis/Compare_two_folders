@@ -33,3 +33,6 @@ strip = "symbols"          # Reduce binary size
 
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = "0.1"
+
+[dev-dependencies]
+tempfile = "3.10"

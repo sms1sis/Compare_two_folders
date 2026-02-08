@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 use clap::ValueEnum;
 use colored::*;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,38 +91,72 @@ impl ComparisonResult {
 
         if verbose {
             if self.status == "DIFF" {
-                 if let (Some(h1), Some(h2)) = (&self.hash1, &self.hash2) {
-                    output.push_str(&format!("    {}: {}
-", "folder1".dimmed(), self.format_hashres(h1, algo)?));
-                    output.push_str(&format!("    {}: {}
-", "folder2".dimmed(), self.format_hashres(h2, algo)?));
+                if let (Some(h1), Some(h2)) = (&self.hash1, &self.hash2) {
+                    output.push_str(&format!(
+                        "    {}: {}
+",
+                        "folder1".dimmed(),
+                        self.format_hashres(h1, algo)?
+                    ));
+                    output.push_str(&format!(
+                        "    {}: {}
+",
+                        "folder2".dimmed(),
+                        self.format_hashres(h2, algo)?
+                    ));
                 } else if let (Some(s1), Some(s2)) = (self.size1, self.size2) {
-                     if s1 != s2 {
-                        output.push_str(&format!("    {}: {}
-", "folder1".dimmed(), format!("{} bytes", s1).cyan()));
-                        output.push_str(&format!("    {}: {}
-", "folder2".dimmed(), format!("{} bytes", s2).cyan()));
-                     } else if let (Some(t1), Some(t2)) = (&self.modified1, &self.modified2) {
+                    if s1 != s2 {
+                        output.push_str(&format!(
+                            "    {}: {}
+",
+                            "folder1".dimmed(),
+                            format!("{} bytes", s1).cyan()
+                        ));
+                        output.push_str(&format!(
+                            "    {}: {}
+",
+                            "folder2".dimmed(),
+                            format!("{} bytes", s2).cyan()
+                        ));
+                    } else if let (Some(t1), Some(t2)) = (&self.modified1, &self.modified2) {
                         if t1 != t2 {
-                             output.push_str(&format!("    {}: {}
-", "folder1".dimmed(), t1.cyan()));
-                             output.push_str(&format!("    {}: {}
-", "folder2".dimmed(), t2.cyan()));
+                            output.push_str(&format!(
+                                "    {}: {}
+",
+                                "folder1".dimmed(),
+                                t1.cyan()
+                            ));
+                            output.push_str(&format!(
+                                "    {}: {}
+",
+                                "folder2".dimmed(),
+                                t2.cyan()
+                            ));
                         }
-                     } else if let (Some(sym1), Some(sym2)) = (&self.symlink1, &self.symlink2) {
-                        if sym1 != sym2 {
-                            output.push_str(&format!("    {}: -> {}
-", "folder1".dimmed(), sym1.cyan()));
-                            output.push_str(&format!("    {}: -> {}
-", "folder2".dimmed(), sym2.cyan()));
-                        }
-                     }
+                    } else if let (Some(sym1), Some(sym2)) = (&self.symlink1, &self.symlink2)
+                        && sym1 != sym2
+                    {
+                        output.push_str(&format!(
+                            "    {}: -> {}
+",
+                            "folder1".dimmed(),
+                            sym1.cyan()
+                        ));
+                        output.push_str(&format!(
+                            "    {}: -> {}
+",
+                            "folder2".dimmed(),
+                            sym2.cyan()
+                        ));
+                    }
                 }
-            } else if self.status == "MATCH" {
-                if let Some(h1) = &self.hash1 {
-                    output.push_str(&format!("    {}: {}
-", "in_both".dimmed(), self.format_hashres(h1, algo)?));
-                }
+            } else if self.status == "MATCH" && let Some(h1) = &self.hash1 {
+                output.push_str(&format!(
+                    "    {}: {}
+",
+                    "in_both".dimmed(),
+                    self.format_hashres(h1, algo)?
+                ));
             }
         }
         Ok(output)
@@ -131,13 +165,29 @@ impl ComparisonResult {
     fn format_hashres(&self, h: &HashResult, algo: HashAlgo) -> anyhow::Result<String> {
         use anyhow::Context;
         match algo {
-            HashAlgo::Sha256 => Ok(h.sha256.as_ref().context("SHA256 hash not computed")?.color(Color::Cyan).to_string()),
-            HashAlgo::Blake3 => Ok(h.blake3.as_ref().context("BLAKE3 hash not computed")?.color(Color::Cyan).to_string()),
+            HashAlgo::Sha256 => Ok(h
+                .sha256
+                .as_ref()
+                .context("SHA256 hash not computed")?
+                .color(Color::Cyan)
+                .to_string()),
+            HashAlgo::Blake3 => Ok(h
+                .blake3
+                .as_ref()
+                .context("BLAKE3 hash not computed")?
+                .color(Color::Cyan)
+                .to_string()),
             HashAlgo::Both => Ok(format!(
                 "sha256:{}
             blake3:{}",
-                h.sha256.as_ref().context("SHA256 hash not computed")?.color(Color::Cyan),
-                h.blake3.as_ref().context("BLAKE3 hash not computed")?.color(Color::Cyan)
+                h.sha256
+                    .as_ref()
+                    .context("SHA256 hash not computed")?
+                    .color(Color::Cyan),
+                h.blake3
+                    .as_ref()
+                    .context("BLAKE3 hash not computed")?
+                    .color(Color::Cyan)
             )),
         }
     }
