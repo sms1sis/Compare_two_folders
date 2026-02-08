@@ -6,6 +6,8 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
 
 ## ✨ Features
 
+*   **Robust Test Suite**: Now includes a comprehensive suite of 10 tests covering core logic, snapshots, synchronization, and edge cases.
+*   **CI/CD Workflow**: Automated testing and linting (clippy, rustfmt) on every push via GitHub Actions.
 *   **Bidirectional Synchronization**: Synchronize files and directories between two locations. Supports dry-runs and optional deletion of extraneous files.
 *   **Snapshot & Verify Data Integrity**: Create a cryptographic manifest of a directory's state at a point in time, and later verify the directory against this manifest to detect changes, corruption, or tampering.
 *   **External Diff Tool Integration**: Seamlessly launch your preferred external diff viewer (e.g., `code --diff`, `vimdiff`) for direct inspection of differing files.
@@ -117,13 +119,13 @@ certutil -hashfile cmpf.exe SHA256
 
 ## 💡 Usage
 
-The `cmpf` utility now uses subcommands to organize its functionality. Global options can be applied to all subcommands.
+The `cmpf` utility uses subcommands to organize its functionality.
 
 ```sh
-./target/release/cmpf [GLOBAL_OPTIONS] <COMMAND> [COMMAND_OPTIONS]
+cmpf [COMMAND] [FOLDER1] [FOLDER2] [OPTIONS]
 ```
 
-**Legacy Comparison Mode**: For backward compatibility, `cmpf` still supports the old `cmpf <FOLDER1_PATH> <FOLDER2_PATH> [GLOBAL_OPTIONS]` syntax, which defaults to the `compare` subcommand.
+**Legacy Comparison Mode**: For backward compatibility, `cmpf` still supports the old `cmpf [FOLDER1] [FOLDER2] [OPTIONS]` syntax, which defaults to the `compare` subcommand.
 
 ### Global Options
 
@@ -190,52 +192,52 @@ Synchronizes files and directories from the source to the destination.
 
 1.  **Basic Comparison (Legacy Mode - same as `cmpf compare`)**:
     ```sh
-    ./target/release/cmpf ./my_folder_a ./my_folder_b
+    cmpf ./my_folder_a ./my_folder_b
     ```
 
 2.  **Basic Comparison (Explicit Command)**:
     ```sh
-    ./target/release/cmpf compare ./my_folder_a ./my_folder_b
+    cmpf compare ./my_folder_a ./my_folder_b
     ```
 
 3.  **Rapid Metadata Comparison (Global Option)**:
     ```sh
-    ./target/release/cmpf -m metadata compare ./linux-kernel-v1 ./linux-kernel-v2
+    cmpf -m metadata compare ./linux-kernel-v1 ./linux-kernel-v2
     ```
 
 4.  **Realtime Comparison with Hidden Files (Global Options)**:
     ```sh
-    ./target/release/cmpf -m realtime -H compare ./my_project_v1 ./my_project_v2
+    cmpf -m realtime -H compare ./my_project_v1 ./my_project_v2
     ```
 
 5.  **Batch Comparison, Specific File Types (Global Options)**:
     ```sh
-    ./target/release/cmpf -t rs -t toml compare ./src_v1 ./src_v2
+    cmpf -t rs -t toml compare ./src_v1 ./src_v2
     ```
 
 6.  **Comparison with External Diff Tool**:
     ```sh
-    ./target/release/cmpf --diff-cmd "code --diff" compare ./my_work_v1 ./my_work_v2
+    cmpf --diff-cmd "code --diff" compare ./my_work_v1 ./my_work_v2
     ```
 
 7.  **Create a Snapshot**:
     ```sh
-    ./target/release/cmpf snapshot ./my_project --output my_project.snapshot.json
+    cmpf snapshot ./my_project --output my_project.snapshot.json
     ```
 
 8.  **Verify a Folder against a Snapshot**:
     ```sh
-    ./target/release/cmpf verify ./my_project my_project.snapshot.json
+    cmpf verify ./my_project my_project.snapshot.json
     ```
 
 9.  **Perform a Dry Run Synchronization**:
     ```sh
-    ./target/release/cmpf sync ./source_folder ./dest_folder --dry-run
+    cmpf sync ./source_folder ./dest_folder --dry-run
     ```
 
 10. **Synchronize and Delete Extraneous Files**:
     ```sh
-    ./target/release/cmpf sync ./source_folder ./dest_folder --dry-run false --delete-extraneous
+    cmpf sync ./source_folder ./dest_folder --dry-run false --delete-extraneous
     ```
 
 ---
