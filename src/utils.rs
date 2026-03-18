@@ -31,7 +31,12 @@ pub fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
 
     if len == 0 {
         return Ok(HashResult {
-            sha256: sha256_hasher.map(|h| format!("{:x}", h.finalize())),
+            sha256: sha256_hasher.map(|h| {
+                h.finalize()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>()
+            }),
             blake3: blake3_hasher.map(|h| h.finalize().to_hex().to_string()),
         });
     }
@@ -60,7 +65,12 @@ pub fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
         }
     }
 
-    let sha256 = sha256_hasher.map(|h| format!("{:x}", h.finalize()));
+    let sha256 = sha256_hasher.map(|h| {
+        h.finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
+    });
     let blake3 = blake3_hasher.map(|h| h.finalize().to_hex().to_string());
 
     Ok(HashResult { sha256, blake3 })
