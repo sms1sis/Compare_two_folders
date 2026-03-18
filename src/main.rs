@@ -43,30 +43,43 @@ struct Cli {
     folder2: Option<PathBuf>,
 
     #[arg(short, long, value_enum, default_value_t = Mode::Batch, global = true)]
+    /// Processing mode: Realtime (sequential), Batch (parallel report), or Metadata (skip hashing)
     mode: Mode,
     #[arg(short, long, value_enum, default_value_t = HashAlgo::Blake3, global = true)]
+    /// Hashing algorithm to use for file comparison
     algo: HashAlgo,
     #[arg(short, long, global = true)]
+    /// (Batch mode only) Folder to save the report file
     output_folder: Option<PathBuf>,
     #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Txt, global = true)]
+    /// (Batch mode only) Format for the output report
     output_format: OutputFormat,
     #[arg(long, global = true)]
+    /// Maximum recursion depth (default: infinite)
     depth: Option<usize>,
     #[arg(long, conflicts_with = "depth", global = true)]
+    /// Disable recursive comparison (equivalent to --depth 1)
     no_recursive: bool,
     #[arg(long, value_enum, default_value_t = SymlinkMode::Ignore, global = true)]
+    /// Handling strategy for symbolic links
     symlinks: SymlinkMode,
     #[arg(short, long, default_value_t = false, global = true)]
+    /// Show hash values for matched and different files
     verbose: bool,
     #[arg(short = 'H', long, default_value_t = false, global = true)]
+    /// Include hidden files and folders in the comparison
     hidden: bool,
     #[arg(short = 't', long = "type", action = clap::ArgAction::Append, global = true)]
+    /// File extensions to include (e.g., "txt", "jpg"). Can be used multiple times.
     types: Option<Vec<String>>,
     #[arg(short = 'i', long, action = clap::ArgAction::Append, global = true)]
+    /// A gitignore-style pattern to ignore. Can be used multiple times.
     ignore: Option<Vec<String>>,
     #[arg(short = 'j', long, value_name = "COUNT", global = true)]
+    /// Number of threads to use for parallel processing (default: number of CPU cores)
     threads: Option<usize>,
     #[arg(short = 'n', long, default_value_t = false, global = true)]
+    /// Disable alphabetical sorting of the output (improves performance)
     no_sort: bool,
     /// Command to use for external diff (e.g., "code --diff", "vimdiff")
     #[arg(long, value_name = "COMMAND", global = true)]
