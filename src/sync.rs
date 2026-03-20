@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::compare::ExitStatus;
-use crate::models::{ComparisonResult, FileEntry, HashAlgo, Mode, SymlinkMode};
+use crate::models::{ComparisonResult, FileEntry, HashAlgo, Mode, Status, SymlinkMode};
 use crate::report::{ReportConfig, SummaryData, generate_summary_text, print_error_entry};
 use crate::utils::{collect_files, compute_hashes};
 
@@ -18,7 +18,7 @@ pub struct SyncConfig {
     pub destination: PathBuf,
     pub dry_run: bool,
     pub delete_extraneous: bool,
-    pub no_delete: bool, // Conflicts with delete_extraneous
+    pub no_delete: bool,
     pub algo: HashAlgo,
     pub depth: Option<usize>,
     pub no_recursive: bool,
@@ -32,11 +32,11 @@ pub struct SyncConfig {
 pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
     let start_time = Instant::now();
 
+    // Fix #5: silently ignore if global pool is already initialised
     if let Some(num_threads) = config.threads {
-        rayon::ThreadPoolBuilder::new()
+        let _ = rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
-            .build_global()
-            .context("Failed to set Rayon thread pool size")?;
+            .build_global();
     }
 
     if io::stdout().is_terminal() {
@@ -59,26 +59,33 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
         println!();
     }
 
-    // 1. Collect files from source and destination
-    let (source_files, source_errors) = collect_files(
-        &config.source,
-        config.depth,
-        config.no_recursive,
-        config.hidden,
-        &config.types,
-        &config.ignore,
-        config.symlinks,
-    )?;
-
-    let (dest_files, dest_errors) = collect_files(
-        &config.destination,
-        config.depth,
-        config.no_recursive,
-        config.hidden,
-        &config.types,
-        &config.ignore,
-        config.symlinks,
-    )?;
+    // Fix #1: collect both folders in parallel (was sequential in original)
+    let (res_source, res_dest) = rayon::join(
+        || {
+            collect_files(
+                &config.source,
+                config.depth,
+                config.no_recursive,
+                config.hidden,
+                &config.types,
+                &config.ignore,
+                config.symlinks,
+            )
+        },
+        || {
+            collect_files(
+                &config.destination,
+                config.depth,
+                config.no_recursive,
+                config.hidden,
+                &config.types,
+                &config.ignore,
+                config.symlinks,
+            )
+        },
+    );
+    let (source_files, source_errors) = res_source?;
+    let (dest_files, dest_errors) = res_dest?;
 
     for e in &source_errors {
         print_error_entry(e, "source");
@@ -111,10 +118,13 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
         })
         .collect();
 
-    let source_paths: HashSet<PathBuf> = source_map.keys().cloned().collect();
-    let dest_paths: HashSet<PathBuf> = dest_map.keys().cloned().collect();
+    let source_paths: HashSet<&PathBuf> = source_map.keys().collect();
+    let dest_paths:   HashSet<&PathBuf> = dest_map.keys().collect();
 
-    let common_paths: Vec<PathBuf> = source_paths.intersection(&dest_paths).cloned().collect();
+    let common_paths: Vec<PathBuf> = source_paths
+        .intersection(&dest_paths)
+        .map(|p| (*p).clone())
+        .collect();
 
     let pb = if io::stderr().is_terminal() {
         let pb = ProgressBar::new(common_paths.len() as u64);
@@ -136,38 +146,14 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
                 p.inc(1);
             }
             let source_entry = source_map.get(rel_path).unwrap();
-            let dest_entry = dest_map.get(rel_path).unwrap();
+            let dest_entry   = dest_map.get(rel_path).unwrap();
 
-            // Compare files
-            // For sync, we only care about if they are different or not.
-            // If same size and mod time, skip hash for Metadata mode equivalent.
-            if source_entry.size == dest_entry.size
-                && config.algo == HashAlgo::Both
-                && source_entry.modified == dest_entry.modified
-            {
-                return None; // No action needed
-            }
-
-            let (h_source_res, h_dest_res) = rayon::join(
-                || compute_hashes(&source_entry.path, config.algo),
-                || compute_hashes(&dest_entry.path, config.algo),
-            );
-
-            let is_diff = match (h_source_res, h_dest_res) {
-                (Ok(h_source), Ok(h_dest)) => match config.algo {
-                    HashAlgo::Sha256 => h_source.sha256 != h_dest.sha256,
-                    HashAlgo::Blake3 => h_source.blake3 != h_dest.blake3,
-                    HashAlgo::Both => {
-                        h_source.sha256 != h_dest.sha256 || h_source.blake3 != h_dest.blake3
-                    }
-                },
-                _ => true, // Treat hashing errors as differences
-            };
-
-            if is_diff {
-                Some(ComparisonResult {
+            // Fix #2: fast-path size check applies regardless of algorithm —
+            //   if sizes differ we already know it's a DIFF, no hashing needed.
+            if source_entry.size != dest_entry.size {
+                return Some(Ok(ComparisonResult {
                     file: rel_path.clone(),
-                    status: "DIFF".to_string(), // Will be "UPDATE"
+                    status: Status::Diff,
                     hash1: None,
                     hash2: None,
                     size1: Some(source_entry.size),
@@ -176,76 +162,98 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
                     modified2: None,
                     symlink1: source_entry.symlink_target.clone(),
                     symlink2: dest_entry.symlink_target.clone(),
-                })
+                }));
+            }
+
+            // Fix #7: metadata fast-path now applies for *every* algorithm, not
+            //   only HashAlgo::Both. (Original code had `&& config.algo == HashAlgo::Both`
+            //   which meant Sha256 and Blake3 modes always hashed even on matching metadata.)
+            if source_entry.modified == dest_entry.modified {
+                return None; // Same size + same mtime → skip hashing
+            }
+
+            let (h_source_res, h_dest_res) = rayon::join(
+                || compute_hashes(&source_entry.path, config.algo),
+                || compute_hashes(&dest_entry.path, config.algo),
+            );
+
+            let result = match (h_source_res, h_dest_res) {
+                (Ok(h_source), Ok(h_dest)) => {
+                    let is_diff = match config.algo {
+                        HashAlgo::Sha256 => h_source.sha256 != h_dest.sha256,
+                        HashAlgo::Blake3 => h_source.blake3 != h_dest.blake3,
+                        HashAlgo::Both   => {
+                            h_source.sha256 != h_dest.sha256
+                                || h_source.blake3 != h_dest.blake3
+                        }
+                    };
+                    is_diff
+                }
+                _ => true, // Treat hashing errors as differences
+            };
+
+            if result {
+                Some(Ok(ComparisonResult {
+                    file: rel_path.clone(),
+                    status: Status::Diff,
+                    hash1: None,
+                    hash2: None,
+                    size1: Some(source_entry.size),
+                    size2: Some(dest_entry.size),
+                    modified1: None,
+                    modified2: None,
+                    symlink1: source_entry.symlink_target.clone(),
+                    symlink2: dest_entry.symlink_target.clone(),
+                }))
             } else {
-                None // No action needed
+                None
             }
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     if let Some(ref p) = pb {
         p.finish_with_message("Comparison complete for common files");
     }
 
-    // Identify MISSING (in dest, but not in source) for deletion or EXTRA (in source, not in dest) for creation
     let mut actions: Vec<ComparisonResult> = Vec::new();
     let mut created_count = 0;
     let mut updated_count = 0;
     let mut deleted_count = 0;
 
-    // Files only in source (CREATE in destination)
+    // Files only in source → CREATE in destination
+    // Fix #12: use constructor helpers
     for rel_path in source_paths.difference(&dest_paths) {
-        actions.push(ComparisonResult {
-            file: rel_path.clone(),
-            status: "CREATE".to_string(),
-            hash1: None,
-            hash2: None,
-            size1: None,
-            size2: None,
-            modified1: None,
-            modified2: None,
-            symlink1: None,
-            symlink2: None,
-        });
+        let mut r = ComparisonResult::missing((*rel_path).clone());
+        r.status = Status::Create;
+        actions.push(r);
     }
 
-    // Files only in destination (DELETE from destination)
+    // Files only in destination → DELETE from destination
     if config.delete_extraneous && !config.no_delete {
         for rel_path in dest_paths.difference(&source_paths) {
-            actions.push(ComparisonResult {
-                file: rel_path.clone(),
-                status: "DELETE".to_string(),
-                hash1: None,
-                hash2: None,
-                size1: None,
-                size2: None,
-                modified1: None,
-                modified2: None,
-                symlink1: None,
-                symlink2: None,
-            });
+            let mut r = ComparisonResult::extra((*rel_path).clone());
+            r.status = Status::Delete;
+            actions.push(r);
         }
     }
 
-    // Add identified differences (UPDATE in destination)
+    // Common files that differ → UPDATE in destination
     for mut res in sync_actions {
-        res.status = "UPDATE".to_string();
+        res.status = Status::Update;
         actions.push(res);
     }
 
     actions.sort_by(|a, b| a.file.cmp(&b.file));
 
-    // Apply actions
     if io::stdout().is_terminal() {
-        println!(
-            "
-Applying synchronization actions..."
-        );
+        println!("\nApplying synchronization actions...");
     }
 
     let action_pb = if io::stderr().is_terminal() {
         let pb = ProgressBar::new(actions.len() as u64);
-        pb.set_style(ProgressStyle::default_bar().template("{spinner:.green} [Elap>{elapsed_precise}] {msg}: {bar:40.cyan/blue} {pos}/{len} ({eta})")?);
+        pb.set_style(ProgressStyle::default_bar().template(
+            "{spinner:.green} [Elap>{elapsed_precise}] {msg}: {bar:40.cyan/blue} {pos}/{len} ({eta})",
+        )?);
         Some(pb)
     } else {
         None
@@ -257,21 +265,21 @@ Applying synchronization actions..."
             p.set_message(format!("Processing {}", action.file.display()));
         }
         let source_path = config.source.join(&action.file);
-        let dest_path = config.destination.join(&action.file);
+        let dest_path   = config.destination.join(&action.file);
 
         if config.dry_run {
-            match action.status.as_str() {
-                "CREATE" => println!(
+            match action.status {
+                Status::Create => println!(
                     "{} (Dry Run): Will create {}",
                     "CREATE".green().bold(),
                     dest_path.display()
                 ),
-                "UPDATE" => println!(
+                Status::Update => println!(
                     "{} (Dry Run): Will update {}",
                     "UPDATE".yellow().bold(),
                     dest_path.display()
                 ),
-                "DELETE" => println!(
+                Status::Delete => println!(
                     "{} (Dry Run): Will delete {}",
                     "DELETE".red().bold(),
                     dest_path.display()
@@ -279,14 +287,14 @@ Applying synchronization actions..."
                 _ => {}
             }
         } else {
-            match action.status.as_str() {
-                "CREATE" | "UPDATE" => {
+            match action.status {
+                Status::Create | Status::Update => {
                     let parent = dest_path
                         .parent()
                         .context("Failed to get parent directory")?;
                     fs::create_dir_all(parent)?;
                     fs::copy(&source_path, &dest_path)?;
-                    if action.status == "CREATE" {
+                    if action.status == Status::Create {
                         created_count += 1;
                         println!("{} {}", "CREATED".green(), dest_path.display());
                     } else {
@@ -294,7 +302,7 @@ Applying synchronization actions..."
                         println!("{} {}", "UPDATED".yellow(), dest_path.display());
                     }
                 }
-                "DELETE" => {
+                Status::Delete => {
                     fs::remove_file(&dest_path)?;
                     deleted_count += 1;
                     println!("{} {}", "DELETED".red(), dest_path.display());
@@ -303,6 +311,7 @@ Applying synchronization actions..."
             }
         }
     }
+
     if let Some(ref p) = action_pb {
         p.finish_with_message("Actions applied");
     }
@@ -310,26 +319,24 @@ Applying synchronization actions..."
     let elapsed = start_time.elapsed();
     let total_actions = created_count + updated_count + deleted_count;
 
-    // Report Summary
     let report_conf = ReportConfig {
-        mode: Mode::Batch, // Sync operates like batch internally
+        mode: Mode::Batch,
         algo: config.algo,
         threads: config.threads,
-        verbose: false, // Sync summary is not verbose on hashes
+        verbose: false,
     };
 
     let summary_data = SummaryData {
-        total: total_actions,
-        matches: 0,             // Matches are not counted as actions
-        diffs: updated_count,   // Diffs are updates
-        missing: created_count, // Missing are creations
-        extra: deleted_count,   // Extra are deletions
-        errors: total_errors,
+        total:   total_actions,
+        matches: 0,
+        diffs:   updated_count,
+        missing: created_count,
+        extra:   deleted_count,
+        errors:  total_errors,
         elapsed,
     };
 
     let summary_lines = generate_summary_text(&summary_data, &report_conf);
-
     for line in summary_lines {
         println!("{}", line);
     }
@@ -337,7 +344,7 @@ Applying synchronization actions..."
     if total_errors > 0 {
         Ok(ExitStatus::Error)
     } else if created_count > 0 || updated_count > 0 || deleted_count > 0 {
-        Ok(ExitStatus::Diff) // Indicate changes were made
+        Ok(ExitStatus::Diff)
     } else {
         Ok(ExitStatus::Success)
     }
