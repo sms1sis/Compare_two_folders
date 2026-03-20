@@ -104,8 +104,12 @@ enum Commands {
         source: PathBuf,
         /// Destination folder
         destination: PathBuf,
+        // Fix #9: dry_run now defaults to FALSE so that running
+        //   `cmpf sync src/ dst/` actually performs the sync instead of
+        //   silently doing nothing and leaving the user confused.
+        //   Pass --dry-run explicitly when you want a preview.
         /// Perform a dry run without making any changes
-        #[arg(long, default_value_t = true)]
+        #[arg(long, default_value_t = false)]
         dry_run: bool,
         /// Delete extraneous files in the destination that are not in the source
         #[arg(long, default_value_t = false)]
@@ -124,11 +128,27 @@ fn main() {
         control::set_override(false);
     }
 
+    // Fix #5: configure the Rayon thread pool once here, before any subcommand runs.
+    // Individual subcommand functions no longer call build_global() themselves;
+    // they do so with a silent `let _ = ...` as a fallback safety net only.
+    let cli_args: Vec<String> = std::env::args().collect();
+    // We parse threads manually here just for the pool init; Clap will parse it
+    // again properly in run(). This avoids restructuring the entire CLI.
+    if let Some(j_pos) = cli_args.iter().position(|a| a == "-j" || a == "--threads") {
+        if let Some(count_str) = cli_args.get(j_pos + 1) {
+            if let Ok(n) = count_str.parse::<usize>() {
+                let _ = rayon::ThreadPoolBuilder::new()
+                    .num_threads(n)
+                    .build_global();
+            }
+        }
+    }
+
     match run() {
         Ok(status) => match status {
             ExitStatus::Success => std::process::exit(0),
-            ExitStatus::Diff => std::process::exit(1),
-            ExitStatus::Error => std::process::exit(2),
+            ExitStatus::Diff    => std::process::exit(1),
+            ExitStatus::Error   => std::process::exit(2),
         },
         Err(e) => {
             eprintln!("Error: {:#}", e);
