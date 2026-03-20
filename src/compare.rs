@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{DateTime, Local};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -8,7 +8,9 @@ use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crate::models::{ComparisonResult, FileEntry, HashAlgo, Mode, OutputFormat, SymlinkMode};
+use crate::models::{
+    ComparisonResult, FileEntry, HashAlgo, Mode, OutputFormat, Status, SymlinkMode,
+};
 use crate::report::{
     ReportConfig, SummaryData, generate_json_report, generate_summary_text, generate_text_report,
     print_error_entry, print_realtime_missing, write_report,
@@ -44,11 +46,12 @@ pub struct CompareConfig {
 pub fn run_compare(config: CompareConfig) -> Result<ExitStatus> {
     let start_time = Instant::now();
 
+    // Fix #5: thread pool configuration is done once here, not repeated in every
+    // subcommand entry point. Subsequent calls are harmless (global pool already set).
     if let Some(num_threads) = config.threads {
-        rayon::ThreadPoolBuilder::new()
+        let _ = rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
-            .build_global()
-            .context("Failed to set Rayon thread pool size")?;
+            .build_global();
     }
 
     match config.mode {
@@ -91,11 +94,7 @@ pub(crate) fn compare_files_core(
             let matches = s1 == s2;
             return Ok(ComparisonResult {
                 file: rel_path,
-                status: if matches {
-                    "MATCH".to_string()
-                } else {
-                    "DIFF".to_string()
-                },
+                status: if matches { Status::Match } else { Status::Diff },
                 hash1: None,
                 hash2: None,
                 size1: None,
@@ -109,7 +108,7 @@ pub(crate) fn compare_files_core(
         if s1.is_some() != s2.is_some() {
             return Ok(ComparisonResult {
                 file: rel_path,
-                status: "DIFF".to_string(),
+                status: Status::Diff,
                 hash1: None,
                 hash2: None,
                 size1: None,
@@ -125,7 +124,7 @@ pub(crate) fn compare_files_core(
     if entry1.size != entry2.size {
         return Ok(ComparisonResult {
             file: rel_path,
-            status: "DIFF".to_string(),
+            status: Status::Diff,
             hash1: None,
             hash2: None,
             size1,
@@ -136,23 +135,14 @@ pub(crate) fn compare_files_core(
             symlink2: None,
         });
     } else if config.mode == Mode::Metadata {
-        if entry1.modified != entry2.modified {
-            return Ok(ComparisonResult {
-                file: rel_path,
-                status: "DIFF".to_string(),
-                hash1: None,
-                hash2: None,
-                size1,
-                size2,
-                modified1: time1_str,
-                modified2: time2_str,
-                symlink1: None,
-                symlink2: None,
-            });
-        }
+        let status = if entry1.modified != entry2.modified {
+            Status::Diff
+        } else {
+            Status::Match
+        };
         return Ok(ComparisonResult {
             file: rel_path,
-            status: "MATCH".to_string(),
+            status,
             hash1: None,
             hash2: None,
             size1,
@@ -176,14 +166,18 @@ pub(crate) fn compare_files_core(
                 HashAlgo::Blake3 => h1.blake3 == h2.blake3,
                 HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
             };
-            (if is_match { "MATCH" } else { "DIFF" }, Some(h1), Some(h2))
+            (
+                if is_match { Status::Match } else { Status::Diff },
+                Some(h1),
+                Some(h2),
+            )
         }
-        _ => ("ERROR", None, None),
+        _ => (Status::Error, None, None),
     };
 
     Ok(ComparisonResult {
         file: rel_path,
-        status: status.to_string(),
+        status,
         hash1: h1,
         hash2: h2,
         size1,
@@ -258,22 +252,20 @@ fn run_realtime(config: &CompareConfig, start_time: Instant) -> Result<ExitStatu
         if let Some(entry2) = files2_map.remove(&rel_path) {
             let result = compare_files_core(rel_path.clone(), entry1, &entry2, config)?;
 
-            match result.status.as_str() {
-                "MATCH" => matches += 1,
-                "DIFF" => diffs += 1,
+            match result.status {
+                Status::Match => matches += 1,
+                Status::Diff => diffs += 1,
                 _ => (),
             }
 
             print!("{}", result.format_text(config.verbose, config.algo)?);
 
+            // Fix #11: use shlex-style splitting to support paths-with-spaces in diff_cmd
             if let Some(diff_cmd_str) = &config.diff_cmd
-                && result.status == "DIFF"
+                && result.status == Status::Diff
             {
-                // Execute external diff command
-                // This is a basic implementation; more robust parsing/handling might be needed for complex commands
-                let mut parts = diff_cmd_str.split_whitespace();
-                if let Some(command) = parts.next() {
-                    let args: Vec<&str> = parts.collect();
+                let parts = split_command(diff_cmd_str);
+                if let Some((command, args)) = parts.split_first() {
                     let file1_path = config.folder1.join(&rel_path);
                     let file2_path = config.folder2.join(&rel_path);
 
@@ -288,12 +280,12 @@ fn run_realtime(config: &CompareConfig, start_time: Instant) -> Result<ExitStatu
                         .args(args)
                         .arg(&file1_path)
                         .arg(&file2_path)
-                        .spawn(); // Use spawn to not block the main process
+                        .spawn();
                 }
             }
         } else {
             missing += 1;
-            print_realtime_missing("MISSING", &rel_path, config.verbose)?;
+            print_realtime_missing(Status::Missing, &rel_path, config.verbose)?;
         }
     }
 
@@ -304,7 +296,7 @@ fn run_realtime(config: &CompareConfig, start_time: Instant) -> Result<ExitStatu
     }
 
     for rel_path in sorted_extra {
-        print_realtime_missing("EXTRA", &rel_path, config.verbose)?;
+        print_realtime_missing(Status::Extra, &rel_path, config.verbose)?;
     }
 
     let elapsed = start_time.elapsed();
@@ -356,6 +348,7 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
         println!();
     }
 
+    // Both folder scans run in parallel (already correct in original batch mode)
     let (res1, res2) = rayon::join(
         || {
             collect_files(
@@ -385,6 +378,7 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
 
     let total_errors = errors1.len() + errors2.len();
 
+    // Fix #4: build maps without double-cloning all keys
     let files1_map: HashMap<PathBuf, FileEntry> = files1
         .into_par_iter()
         .map(|f| {
@@ -404,10 +398,14 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
         })
         .collect();
 
-    let set1_paths: HashSet<PathBuf> = files1_map.keys().cloned().collect();
-    let set2_paths: HashSet<PathBuf> = files2_map.keys().cloned().collect();
+    // Fix #4: use reference sets to avoid cloning every key twice
+    let set1_paths: HashSet<&PathBuf> = files1_map.keys().collect();
+    let set2_paths: HashSet<&PathBuf> = files2_map.keys().collect();
 
-    let common_paths: Vec<PathBuf> = set1_paths.intersection(&set2_paths).cloned().collect();
+    let common_paths: Vec<PathBuf> = set1_paths
+        .intersection(&set2_paths)
+        .map(|p| (*p).clone())
+        .collect();
 
     let pb = if io::stderr().is_terminal() {
         let pb = ProgressBar::new(common_paths.len() as u64);
@@ -438,34 +436,13 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
         p.finish_with_message("Comparison complete");
     }
 
+    // Fix #12: use constructor helpers instead of large None-filled struct literals
     for rel_path in set1_paths.difference(&set2_paths) {
-        all_results.push(ComparisonResult {
-            file: rel_path.clone(),
-            status: "MISSING".to_string(),
-            hash1: None,
-            hash2: None,
-            size1: None,
-            size2: None,
-            modified1: None,
-            modified2: None,
-            symlink1: None,
-            symlink2: None,
-        });
+        all_results.push(ComparisonResult::missing((*rel_path).clone()));
     }
 
     for rel_path in set2_paths.difference(&set1_paths) {
-        all_results.push(ComparisonResult {
-            file: rel_path.clone(),
-            status: "EXTRA".to_string(),
-            hash1: None,
-            hash2: None,
-            size1: None,
-            size2: None,
-            modified1: None,
-            modified2: None,
-            symlink1: None,
-            symlink2: None,
-        });
+        all_results.push(ComparisonResult::extra((*rel_path).clone()));
     }
 
     if !config.no_sort {
@@ -477,12 +454,12 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
     let mut missing = 0;
     let mut extra = 0;
     for r in &all_results {
-        match r.status.as_str() {
-            "MATCH" => matches += 1,
-            "DIFF" => diffs += 1,
-            "MISSING" => missing += 1,
-            "EXTRA" => extra += 1,
-            _ => (),
+        match r.status {
+            Status::Match   => matches += 1,
+            Status::Diff    => diffs += 1,
+            Status::Missing => missing += 1,
+            Status::Extra   => extra += 1,
+            _               => (),
         }
     }
     let total = all_results.len();
@@ -529,4 +506,32 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
     } else {
         Ok(ExitStatus::Success)
     }
+}
+
+/// Fix #11: split a command string respecting single- and double-quoted segments
+/// so that paths containing spaces (e.g. "/my tools/code --diff") are handled
+/// correctly instead of being naively split on every whitespace character.
+fn split_command(cmd: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+
+    for ch in cmd.chars() {
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            ' ' | '\t' if !in_single && !in_double => {
+                if !current.is_empty() {
+                    parts.push(current.clone());
+                    current.clear();
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
 }
