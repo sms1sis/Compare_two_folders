@@ -1,6 +1,6 @@
 [package]
 name = "cmpf"
-version = "5.1.0"
+version = "5.2.0"
 edition = "2024"
 authors = ["sms1sis <sadimsajid2004@gmail.com>"]
 license = "GPL-3.0-or-later"
@@ -25,10 +25,10 @@ chrono = "0.4.44"
 memmap2 = "0.9.10"
 
 [profile.release]
-opt-level = 3              # (Default, but good to be explicit)
-lto = "fat"                # Maximum whole-program optimization
-codegen-units = 1          # Maximum code optimization at the cost of compile time
-strip = "symbols"          # Reduce binary size
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
 
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = "0.1.48"
