@@ -5,13 +5,14 @@ use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::models::{ComparisonResult, ErrorEntry, HashAlgo, Mode};
+use crate::models::{ComparisonResult, ErrorEntry, HashAlgo, Mode, Status};
 
-pub fn print_realtime_missing(status: &str, file: &Path, _verbose: bool) -> Result<()> {
+// Fix #8: print_realtime_missing now takes a Status enum instead of &str
+pub fn print_realtime_missing(status: Status, file: &Path, _verbose: bool) -> Result<()> {
     let (status_colored, file_color) = match status {
-        "MISSING" => ("MISSING".blue(), Color::Blue),
-        "EXTRA" => ("EXTRA".blue(), Color::Blue),
-        _ => (status.normal(), Color::White),
+        Status::Missing => ("MISSING".blue(), Color::Blue),
+        Status::Extra   => ("EXTRA".blue(),   Color::Blue),
+        other => (other.to_string().normal(), Color::White),
     };
     println!(
         "[{}]  {}",
@@ -113,72 +114,18 @@ pub fn generate_summary_text(data: &SummaryData, config: &ReportConfig) -> Vec<S
         ));
     };
 
-    add_line(&mut output, "Mode", &mode_str, Color::Cyan, Color::Magenta);
-    add_line(
-        &mut output,
-        "Algorithm",
-        &algo_str,
-        Color::Cyan,
-        Color::Magenta,
-    );
-    add_line(
-        &mut output,
-        "Threads",
-        &threads_str,
-        Color::Cyan,
-        Color::Magenta,
-    );
-    add_line(
-        &mut output,
-        "Total files checked",
-        &data.total.to_string(),
-        Color::Cyan,
-        Color::Blue,
-    );
-    add_line(
-        &mut output,
-        "Missing in Folder2",
-        &data.missing.to_string(),
-        Color::Cyan,
-        Color::Blue,
-    );
-    add_line(
-        &mut output,
-        "Extra in Folder2",
-        &data.extra.to_string(),
-        Color::Cyan,
-        Color::Blue,
-    );
-    add_line(
-        &mut output,
-        "Matches",
-        &data.matches.to_string(),
-        Color::Cyan,
-        Color::Green,
-    );
-    add_line(
-        &mut output,
-        "Differences",
-        &data.diffs.to_string(),
-        Color::Cyan,
-        Color::Red,
-    );
+    add_line(&mut output, "Mode",                &mode_str,              Color::Cyan, Color::Magenta);
+    add_line(&mut output, "Algorithm",           &algo_str,              Color::Cyan, Color::Magenta);
+    add_line(&mut output, "Threads",             &threads_str,           Color::Cyan, Color::Magenta);
+    add_line(&mut output, "Total files checked", &data.total.to_string(),   Color::Cyan, Color::Blue);
+    add_line(&mut output, "Missing in Folder2",  &data.missing.to_string(), Color::Cyan, Color::Blue);
+    add_line(&mut output, "Extra in Folder2",    &data.extra.to_string(),   Color::Cyan, Color::Blue);
+    add_line(&mut output, "Matches",             &data.matches.to_string(), Color::Cyan, Color::Green);
+    add_line(&mut output, "Differences",         &data.diffs.to_string(),   Color::Cyan, Color::Red);
     if data.errors > 0 {
-        add_line(
-            &mut output,
-            "Errors",
-            &data.errors.to_string(),
-            Color::Cyan,
-            Color::Red,
-        );
+        add_line(&mut output, "Errors", &data.errors.to_string(), Color::Cyan, Color::Red);
     }
-    add_line(
-        &mut output,
-        "Time taken",
-        &elapsed_str,
-        Color::Cyan,
-        Color::Yellow,
-    );
+    add_line(&mut output, "Time taken", &elapsed_str, Color::Cyan, Color::Yellow);
 
     output.push(format!(
         "{}{}{}",
@@ -201,8 +148,7 @@ pub fn generate_text_report(
 
     for e in errors1 {
         output.push_str(&format!(
-            "[{}] {} (folder1: {})
-",
+            "[{}] {} (folder1: {})\n",
             "ERROR".red().on_white(),
             e.path.display(),
             e.error
@@ -210,8 +156,7 @@ pub fn generate_text_report(
     }
     for e in errors2 {
         output.push_str(&format!(
-            "[{}] {} (folder2: {})
-",
+            "[{}] {} (folder2: {})\n",
             "ERROR".red().on_white(),
             e.path.display(),
             e.error
@@ -225,10 +170,7 @@ pub fn generate_text_report(
     output.push('\n');
 
     let summary_text = generate_summary_text(summary_data, config);
-    output.push_str(&summary_text.join(
-        "
-",
-    ));
+    output.push_str(&summary_text.join("\n"));
 
     Ok(output)
 }
