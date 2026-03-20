@@ -178,16 +178,13 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
             );
 
             let result = match (h_source_res, h_dest_res) {
-                (Ok(h_source), Ok(h_dest)) => {
-                    let is_diff = match config.algo {
-                        HashAlgo::Sha256 => h_source.sha256 != h_dest.sha256,
-                        HashAlgo::Blake3 => h_source.blake3 != h_dest.blake3,
-                        HashAlgo::Both => {
-                            h_source.sha256 != h_dest.sha256 || h_source.blake3 != h_dest.blake3
-                        }
-                    };
-                    is_diff
-                }
+                (Ok(h_source), Ok(h_dest)) => match config.algo {
+                    HashAlgo::Sha256 => h_source.sha256 != h_dest.sha256,
+                    HashAlgo::Blake3 => h_source.blake3 != h_dest.blake3,
+                    HashAlgo::Both => {
+                        h_source.sha256 != h_dest.sha256 || h_source.blake3 != h_dest.blake3
+                    }
+                },
                 _ => true, // Treat hashing errors as differences
             };
 

@@ -134,14 +134,13 @@ fn main() {
     let cli_args: Vec<String> = std::env::args().collect();
     // We parse threads manually here just for the pool init; Clap will parse it
     // again properly in run(). This avoids restructuring the entire CLI.
-    if let Some(j_pos) = cli_args.iter().position(|a| a == "-j" || a == "--threads") {
-        if let Some(count_str) = cli_args.get(j_pos + 1) {
-            if let Ok(n) = count_str.parse::<usize>() {
-                let _ = rayon::ThreadPoolBuilder::new()
-                    .num_threads(n)
-                    .build_global();
-            }
-        }
+    if let Some(j_pos) = cli_args.iter().position(|a| a == "-j" || a == "--threads")
+        && let Some(count_str) = cli_args.get(j_pos + 1)
+        && let Ok(n) = count_str.parse::<usize>()
+    {
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build_global();
     }
 
     match run() {
