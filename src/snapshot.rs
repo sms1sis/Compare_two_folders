@@ -11,10 +11,23 @@ use std::time::Instant;
 
 use crate::compare::ExitStatus;
 use crate::models::{
-    ComparisonResult, FileEntry, HashAlgo, HashResult, Mode, OutputFormat, SymlinkMode,
+    ComparisonResult, FileEntry, HashAlgo, HashResult, Mode, OutputFormat, Status, SymlinkMode,
 };
 use crate::report::{ReportConfig, SummaryData, generate_json_report, generate_text_report};
 use crate::utils::{collect_files, compute_hashes};
+
+// Fix #6: store the scan parameters alongside the snapshot data so that
+// verify_snapshot can reproduce the exact same walk instead of hardcoding
+// hidden=true, depth=None, types=None, etc.
+#[derive(Serialize, Deserialize)]
+pub struct SnapshotScanParams {
+    pub depth: Option<usize>,
+    pub no_recursive: bool,
+    pub hidden: bool,
+    pub types: Option<Vec<String>>,
+    pub ignore: Option<Vec<String>>,
+    pub symlinks: SymlinkMode,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct Snapshot {
@@ -22,6 +35,10 @@ pub struct Snapshot {
     pub root_path: String,
     pub files: Vec<SnapshotEntry>,
     pub algo: HashAlgo,
+    /// Scan parameters recorded at snapshot creation time. (Fix #6)
+    /// An absent field (old snapshot files) falls back to safe defaults.
+    #[serde(default)]
+    pub scan_params: Option<SnapshotScanParams>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -47,11 +64,11 @@ pub struct SnapshotConfig {
 }
 
 pub fn create_snapshot(config: SnapshotConfig) -> Result<()> {
+    // Fix #5: silently ignore if global pool is already initialised
     if let Some(num_threads) = config.threads {
-        rayon::ThreadPoolBuilder::new()
+        let _ = rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
-            .build_global()
-            .context("Failed to set Rayon thread pool size")?;
+            .build_global();
     }
 
     if io::stdout().is_terminal() {
@@ -88,34 +105,44 @@ pub fn create_snapshot(config: SnapshotConfig) -> Result<()> {
             if let Some(ref p) = pb {
                 p.inc(1);
             }
-            let h = compute_hashes(&f.path, config.algo).unwrap_or(HashResult {
-                sha256: None,
-                blake3: None,
-            });
+            // Fix #10: surface hash errors instead of silently storing None hashes.
+            // We propagate the error so the snapshot is not saved with corrupt data.
+            let h = compute_hashes(&f.path, config.algo)?;
             let rel = f
                 .path
                 .strip_prefix(&config.folder)
                 .unwrap_or(&f.path)
                 .to_path_buf();
-            SnapshotEntry {
+            Ok(SnapshotEntry {
                 rel_path: rel,
                 size: f.size,
                 modified: f.modified,
                 hashes: h,
                 symlink_target: f.symlink_target.clone(),
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     if let Some(ref p) = pb {
         p.finish_with_message("Snapshot complete");
     }
+
+    // Fix #6: persist scan parameters so verify can reproduce the same walk.
+    let scan_params = SnapshotScanParams {
+        depth: config.depth,
+        no_recursive: config.no_recursive,
+        hidden: config.hidden,
+        types: config.types.clone(),
+        ignore: config.ignore.clone(),
+        symlinks: config.symlinks,
+    };
 
     let snapshot = Snapshot {
         created_at: chrono::Local::now().to_rfc3339(),
         root_path: config.folder.to_string_lossy().to_string(),
         files: entries,
         algo: config.algo,
+        scan_params: Some(scan_params),
     };
 
     let json = serde_json::to_string_pretty(&snapshot)?;
@@ -140,11 +167,11 @@ pub struct VerifyConfig {
 }
 
 pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
+    // Fix #5: silently ignore if global pool is already initialised
     if let Some(num_threads) = config.threads {
-        rayon::ThreadPoolBuilder::new()
+        let _ = rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
-            .build_global()
-            .context("Failed to set Rayon thread pool size")?;
+            .build_global();
     }
 
     let start_time = Instant::now();
@@ -156,16 +183,24 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
         snapshot.created_at.cyan()
     );
 
-    // Collect current state
+    // Fix #6: reproduce the exact scan parameters used when the snapshot was created.
+    // For old snapshots without scan_params, fall back to sensible defaults.
+    let sp = snapshot.scan_params.as_ref();
+    let depth          = sp.and_then(|p| p.depth);
+    let no_recursive   = sp.map(|p| p.no_recursive).unwrap_or(false);
+    let hidden         = sp.map(|p| p.hidden).unwrap_or(false);
+    let types          = sp.and_then(|p| p.types.clone());
+    let ignore         = sp.and_then(|p| p.ignore.clone());
+    let symlink_mode   = sp.map(|p| p.symlinks).unwrap_or(SymlinkMode::Ignore);
+
     let (current_files, current_errors) = collect_files(
         &config.folder,
-        None, // Default to full recursive as snapshot implies state
-        false,
-        true, // Assume snapshot might cover hidden files, or should we pass flags?
-        // Ideally snapshot stores what it saw.
-        &None,
-        &None,
-        SymlinkMode::Compare, // Usually we want to compare what we see
+        depth,
+        no_recursive,
+        hidden,
+        &types,
+        &ignore,
+        symlink_mode,
     )?;
 
     let current_map: HashMap<PathBuf, FileEntry> = current_files
@@ -198,11 +233,7 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
         None
     };
 
-    // Check files in snapshot
     let snapshot_keys: Vec<PathBuf> = snapshot_map.keys().cloned().collect();
-
-    // We iterate over snapshot keys to find MATCH/DIFF/MISSING
-    let mut checked_paths = std::collections::HashSet::new();
 
     let mut results: Vec<ComparisonResult> = snapshot_keys
         .par_iter()
@@ -213,107 +244,88 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
             let snap_entry = snapshot_map.get(rel_path).unwrap();
 
             if let Some(curr_entry) = current_map.get(rel_path) {
-                // Compare
-                let h = compute_hashes(&curr_entry.path, snapshot.algo).unwrap_or(HashResult {
-                    sha256: None,
-                    blake3: None,
-                });
+                // Fix #10: propagate hashing errors instead of silently treating
+                // them as DIFF (the old unwrap_or behaviour).
+                let h = compute_hashes(&curr_entry.path, snapshot.algo)
+                    .context("Failed to hash file during verification")?;
 
                 let status = match snapshot.algo {
                     HashAlgo::Sha256 => {
-                        if h.sha256 == snap_entry.hashes.sha256 {
-                            "MATCH"
-                        } else {
-                            "DIFF"
-                        }
+                        if h.sha256 == snap_entry.hashes.sha256 { Status::Match } else { Status::Diff }
                     }
                     HashAlgo::Blake3 => {
-                        if h.blake3 == snap_entry.hashes.blake3 {
-                            "MATCH"
-                        } else {
-                            "DIFF"
-                        }
+                        if h.blake3 == snap_entry.hashes.blake3 { Status::Match } else { Status::Diff }
                     }
                     HashAlgo::Both => {
                         if h.sha256 == snap_entry.hashes.sha256
                             && h.blake3 == snap_entry.hashes.blake3
                         {
-                            "MATCH"
+                            Status::Match
                         } else {
-                            "DIFF"
+                            Status::Diff
                         }
                     }
                 };
 
-                ComparisonResult {
+                Ok(ComparisonResult {
                     file: rel_path.clone(),
-                    status: status.to_string(),
+                    status,
                     hash1: Some(snap_entry.hashes.clone()),
                     hash2: Some(h),
                     size1: Some(snap_entry.size),
                     size2: Some(curr_entry.size),
                     modified1: None,
-                    modified2: None, // Could format if needed
-                    symlink1: snap_entry.symlink_target.clone(),
-                    symlink2: curr_entry.symlink_target.clone(),
-                }
-            } else {
-                ComparisonResult {
-                    file: rel_path.clone(),
-                    status: "MISSING".to_string(), // Missing in current folder
-                    hash1: Some(snap_entry.hashes.clone()),
-                    hash2: None,
-                    size1: Some(snap_entry.size),
-                    size2: None,
-                    modified1: None,
                     modified2: None,
                     symlink1: snap_entry.symlink_target.clone(),
-                    symlink2: None,
-                }
+                    symlink2: curr_entry.symlink_target.clone(),
+                })
+            } else {
+                // Fix #12: use constructor helper
+                let mut r = ComparisonResult::missing(rel_path.clone());
+                r.hash1 = Some(snap_entry.hashes.clone());
+                r.size1 = Some(snap_entry.size);
+                r.symlink1 = snap_entry.symlink_target.clone();
+                Ok(r)
             }
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     if let Some(ref p) = pb {
         p.finish_with_message("Verification complete");
     }
 
-    for r in &results {
-        checked_paths.insert(r.file.clone());
-    }
+    // Collect all paths that were checked in the snapshot loop.
+    // Clone into an owned HashSet so the immutable borrow on `results`
+    // is released before we push EXTRA entries. (Fix for E0502)
+    let checked_paths: std::collections::HashSet<PathBuf> =
+        results.iter().map(|r| r.file.clone()).collect();
 
-    // Check for EXTRA files (in current but not in snapshot)
-    for (rel_path, curr_entry) in &current_map {
-        if !checked_paths.contains(rel_path) {
-            results.push(ComparisonResult {
-                file: rel_path.clone(),
-                status: "EXTRA".to_string(),
-                hash1: None,
-                hash2: None,
-                size1: None,
-                size2: Some(curr_entry.size),
-                modified1: None,
-                modified2: None,
-                symlink1: None,
-                symlink2: curr_entry.symlink_target.clone(),
-            });
-        }
-    }
+    // Gather EXTRA entries separately so we avoid a simultaneous mut/immut borrow.
+    let extras: Vec<ComparisonResult> = current_map
+        .iter()
+        .filter(|(rel_path, _)| !checked_paths.contains(*rel_path))
+        .map(|(rel_path, curr_entry)| {
+            let mut r = ComparisonResult::extra(rel_path.clone());
+            r.size2 = Some(curr_entry.size);
+            r.symlink2 = curr_entry.symlink_target.clone();
+            r
+        })
+        .collect();
+    results.extend(extras);
 
     results.sort_by(|a, b| a.file.cmp(&b.file));
 
-    // Generate Report
     let mut matches = 0;
     let mut diffs = 0;
     let mut missing = 0;
     let mut extra = 0;
     for r in &results {
-        match r.status.as_str() {
-            "MATCH" => matches += 1,
-            "DIFF" => diffs += 1,
-            "MISSING" => missing += 1,
-            "EXTRA" => extra += 1,
-            _ => (),
+        match r.status {
+            Status::Match   => matches += 1,
+            Status::Diff    => diffs += 1,
+            Status::Missing => missing += 1,
+            Status::Extra   => extra += 1,
+            _               => (),
         }
     }
 
@@ -337,7 +349,7 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
     let report = match config.output_format {
         OutputFormat::Txt => generate_text_report(
             &results,
-            &[], // Snapshot errors?
+            &[],
             &current_errors,
             &summary_data,
             &report_conf,
