@@ -4,6 +4,7 @@ use ignore::WalkBuilder;
 use memmap2::Mmap;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::fmt::Write as FmtWrite;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -31,12 +32,8 @@ pub fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
 
     if len == 0 {
         return Ok(HashResult {
-            sha256: sha256_hasher.map(|h| {
-                h.finalize()
-                    .iter()
-                    .map(|b| format!("{:02x}", b))
-                    .collect::<String>()
-            }),
+            // Fix #3: pre-allocate a 64-char buffer instead of one String-per-byte
+            sha256: sha256_hasher.map(|h| bytes_to_hex(&h.finalize())),
             blake3: blake3_hasher.map(|h| h.finalize().to_hex().to_string()),
         });
     }
@@ -65,15 +62,23 @@ pub fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
         }
     }
 
-    let sha256 = sha256_hasher.map(|h| {
-        h.finalize()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
-    });
+    // Fix #3: use pre-allocated hex encoding (64 bytes, no per-byte alloc)
+    let sha256 = sha256_hasher.map(|h| bytes_to_hex(&h.finalize()));
     let blake3 = blake3_hasher.map(|h| h.finalize().to_hex().to_string());
 
     Ok(HashResult { sha256, blake3 })
+}
+
+/// Encode a byte slice to lowercase hex with a single pre-allocated String.
+/// This replaces the old `.iter().map(|b| format!("{:02x}", b)).collect()` pattern
+/// that allocated one String per byte (32 allocations for SHA-256). (Fix #3)
+#[inline]
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        write!(s, "{:02x}", b).expect("write to String is infallible");
+    }
+    s
 }
 
 pub fn collect_files(
