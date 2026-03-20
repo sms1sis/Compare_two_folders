@@ -56,14 +56,14 @@ pub enum Status {
 impl std::fmt::Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Status::Match   => write!(f, "MATCH"),
-            Status::Diff    => write!(f, "DIFF"),
+            Status::Match => write!(f, "MATCH"),
+            Status::Diff => write!(f, "DIFF"),
             Status::Missing => write!(f, "MISSING"),
-            Status::Extra   => write!(f, "EXTRA"),
-            Status::Error   => write!(f, "ERROR"),
-            Status::Create  => write!(f, "CREATE"),
-            Status::Update  => write!(f, "UPDATE"),
-            Status::Delete  => write!(f, "DELETE"),
+            Status::Extra => write!(f, "EXTRA"),
+            Status::Error => write!(f, "ERROR"),
+            Status::Create => write!(f, "CREATE"),
+            Status::Update => write!(f, "UPDATE"),
+            Status::Delete => write!(f, "DELETE"),
         }
     }
 }
@@ -137,14 +137,14 @@ impl ComparisonResult {
     pub fn format_text(&self, verbose: bool, algo: HashAlgo) -> anyhow::Result<String> {
         let mut output = String::new();
         let (status_colored, file_color) = match self.status {
-            Status::Match   => ("MATCH".green(),            Color::Green),
-            Status::Diff    => ("DIFF".red(),               Color::Red),
-            Status::Missing => ("MISSING".blue(),           Color::Blue),
-            Status::Extra   => ("EXTRA".blue(),             Color::Blue),
-            Status::Error   => ("ERROR".red().on_white(),   Color::Red),
-            Status::Create  => ("CREATE".green(),           Color::Green),
-            Status::Update  => ("UPDATE".yellow(),          Color::Yellow),
-            Status::Delete  => ("DELETE".red(),             Color::Red),
+            Status::Match => ("MATCH".green(), Color::Green),
+            Status::Diff => ("DIFF".red(), Color::Red),
+            Status::Missing => ("MISSING".blue(), Color::Blue),
+            Status::Extra => ("EXTRA".blue(), Color::Blue),
+            Status::Error => ("ERROR".red().on_white(), Color::Red),
+            Status::Create => ("CREATE".green(), Color::Green),
+            Status::Update => ("UPDATE".yellow(), Color::Yellow),
+            Status::Delete => ("DELETE".red(), Color::Red),
         };
 
         let file_name = self.file.to_str().unwrap_or("Invalid Name");

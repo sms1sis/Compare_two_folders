@@ -186,12 +186,12 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
     // Fix #6: reproduce the exact scan parameters used when the snapshot was created.
     // For old snapshots without scan_params, fall back to sensible defaults.
     let sp = snapshot.scan_params.as_ref();
-    let depth          = sp.and_then(|p| p.depth);
-    let no_recursive   = sp.map(|p| p.no_recursive).unwrap_or(false);
-    let hidden         = sp.map(|p| p.hidden).unwrap_or(false);
-    let types          = sp.and_then(|p| p.types.clone());
-    let ignore         = sp.and_then(|p| p.ignore.clone());
-    let symlink_mode   = sp.map(|p| p.symlinks).unwrap_or(SymlinkMode::Ignore);
+    let depth = sp.and_then(|p| p.depth);
+    let no_recursive = sp.map(|p| p.no_recursive).unwrap_or(false);
+    let hidden = sp.map(|p| p.hidden).unwrap_or(false);
+    let types = sp.and_then(|p| p.types.clone());
+    let ignore = sp.and_then(|p| p.ignore.clone());
+    let symlink_mode = sp.map(|p| p.symlinks).unwrap_or(SymlinkMode::Ignore);
 
     let (current_files, current_errors) = collect_files(
         &config.folder,
@@ -251,10 +251,18 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
 
                 let status = match snapshot.algo {
                     HashAlgo::Sha256 => {
-                        if h.sha256 == snap_entry.hashes.sha256 { Status::Match } else { Status::Diff }
+                        if h.sha256 == snap_entry.hashes.sha256 {
+                            Status::Match
+                        } else {
+                            Status::Diff
+                        }
                     }
                     HashAlgo::Blake3 => {
-                        if h.blake3 == snap_entry.hashes.blake3 { Status::Match } else { Status::Diff }
+                        if h.blake3 == snap_entry.hashes.blake3 {
+                            Status::Match
+                        } else {
+                            Status::Diff
+                        }
                     }
                     HashAlgo::Both => {
                         if h.sha256 == snap_entry.hashes.sha256
@@ -321,11 +329,11 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
     let mut extra = 0;
     for r in &results {
         match r.status {
-            Status::Match   => matches += 1,
-            Status::Diff    => diffs += 1,
+            Status::Match => matches += 1,
+            Status::Diff => diffs += 1,
             Status::Missing => missing += 1,
-            Status::Extra   => extra += 1,
-            _               => (),
+            Status::Extra => extra += 1,
+            _ => (),
         }
     }
 
@@ -347,13 +355,9 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
     };
 
     let report = match config.output_format {
-        OutputFormat::Txt => generate_text_report(
-            &results,
-            &[],
-            &current_errors,
-            &summary_data,
-            &report_conf,
-        )?,
+        OutputFormat::Txt => {
+            generate_text_report(&results, &[], &current_errors, &summary_data, &report_conf)?
+        }
         OutputFormat::Json => generate_json_report(&results, &[], &current_errors, &summary_data)?,
     };
 

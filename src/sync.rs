@@ -119,7 +119,7 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
         .collect();
 
     let source_paths: HashSet<&PathBuf> = source_map.keys().collect();
-    let dest_paths:   HashSet<&PathBuf> = dest_map.keys().collect();
+    let dest_paths: HashSet<&PathBuf> = dest_map.keys().collect();
 
     let common_paths: Vec<PathBuf> = source_paths
         .intersection(&dest_paths)
@@ -146,7 +146,7 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
                 p.inc(1);
             }
             let source_entry = source_map.get(rel_path).unwrap();
-            let dest_entry   = dest_map.get(rel_path).unwrap();
+            let dest_entry = dest_map.get(rel_path).unwrap();
 
             // Fix #2: fast-path size check applies regardless of algorithm —
             //   if sizes differ we already know it's a DIFF, no hashing needed.
@@ -182,9 +182,8 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
                     let is_diff = match config.algo {
                         HashAlgo::Sha256 => h_source.sha256 != h_dest.sha256,
                         HashAlgo::Blake3 => h_source.blake3 != h_dest.blake3,
-                        HashAlgo::Both   => {
-                            h_source.sha256 != h_dest.sha256
-                                || h_source.blake3 != h_dest.blake3
+                        HashAlgo::Both => {
+                            h_source.sha256 != h_dest.sha256 || h_source.blake3 != h_dest.blake3
                         }
                     };
                     is_diff
@@ -265,7 +264,7 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
             p.set_message(format!("Processing {}", action.file.display()));
         }
         let source_path = config.source.join(&action.file);
-        let dest_path   = config.destination.join(&action.file);
+        let dest_path = config.destination.join(&action.file);
 
         if config.dry_run {
             match action.status {
@@ -327,12 +326,12 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
     };
 
     let summary_data = SummaryData {
-        total:   total_actions,
+        total: total_actions,
         matches: 0,
-        diffs:   updated_count,
+        diffs: updated_count,
         missing: created_count,
-        extra:   deleted_count,
-        errors:  total_errors,
+        extra: deleted_count,
+        errors: total_errors,
         elapsed,
     };
 

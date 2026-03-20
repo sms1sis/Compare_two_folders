@@ -147,8 +147,8 @@ fn main() {
     match run() {
         Ok(status) => match status {
             ExitStatus::Success => std::process::exit(0),
-            ExitStatus::Diff    => std::process::exit(1),
-            ExitStatus::Error   => std::process::exit(2),
+            ExitStatus::Diff => std::process::exit(1),
+            ExitStatus::Error => std::process::exit(2),
         },
         Err(e) => {
             eprintln!("Error: {:#}", e);

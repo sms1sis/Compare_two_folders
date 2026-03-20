@@ -167,7 +167,11 @@ pub(crate) fn compare_files_core(
                 HashAlgo::Both => h1.sha256 == h2.sha256 && h1.blake3 == h2.blake3,
             };
             (
-                if is_match { Status::Match } else { Status::Diff },
+                if is_match {
+                    Status::Match
+                } else {
+                    Status::Diff
+                },
                 Some(h1),
                 Some(h2),
             )
@@ -455,11 +459,11 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
     let mut extra = 0;
     for r in &all_results {
         match r.status {
-            Status::Match   => matches += 1,
-            Status::Diff    => diffs += 1,
+            Status::Match => matches += 1,
+            Status::Diff => diffs += 1,
             Status::Missing => missing += 1,
-            Status::Extra   => extra += 1,
-            _               => (),
+            Status::Extra => extra += 1,
+            _ => (),
         }
     }
     let total = all_results.len();
