@@ -74,6 +74,10 @@ These instructions will get you a copy of the project up and running on your loc
     ```
     The executable will be located at `./target/release/cmpf`.
 
+3. **Via cargo (compiles from source):**
+    ```sh
+    cargo install cmpf
+    ```
 ---
 
 ## 🔐 Verification
