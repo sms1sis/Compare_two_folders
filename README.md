@@ -158,6 +158,8 @@ These options can be applied before any command to affect its behavior:
 *   `-j, --threads <COUNT>`: Set the number of threads to use for parallel processing. Defaults to the number of available CPU cores.
 *   `-n, --no-sort`: Disable alphabetical sorting of the output. Drastically improves performance on massive directory trees when order is not required.
 *   `--diff-cmd <COMMAND>`: Command to use for external diff (e.g., `"code --diff"`, `"vimdiff"`) for differing files in `compare` mode.
+*   `--mmap-threshold <SIZE>`: Minimum file size before hashing switches from a buffered read to memory-mapped I/O. Accepts plain byte counts or sizes with a suffix (`32KB`, `32KiB`, `65536`). Default: `32KiB`.
+*   `--rayon-threshold <SIZE>`: Minimum file size before BLAKE3's internal Rayon-based multithreading kicks in for hashing a single file. Same size syntax as `--mmap-threshold`. Default: `128MiB`. Lowering this can help on very large files with many CPU cores; raising it avoids thread-pool overhead when most files are small-to-medium.
 
 ### Commands
 

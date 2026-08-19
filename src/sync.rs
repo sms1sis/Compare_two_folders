@@ -27,6 +27,8 @@ pub struct SyncConfig {
     pub types: Option<Vec<String>>,
     pub ignore: Option<Vec<String>>,
     pub threads: Option<usize>,
+    pub mmap_threshold: u64,
+    pub rayon_threshold: u64,
 }
 
 pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
@@ -100,7 +102,10 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
         .into_par_iter()
         .map(|f| {
             (
-                f.path.strip_prefix(&config.source).unwrap().to_path_buf(),
+                f.path
+                    .strip_prefix(&config.source)
+                    .expect("walked path outside source root")
+                    .to_path_buf(),
                 f,
             )
         })
@@ -111,7 +116,7 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
             (
                 f.path
                     .strip_prefix(&config.destination)
-                    .unwrap()
+                    .expect("walked path outside destination root")
                     .to_path_buf(),
                 f,
             )
@@ -173,8 +178,22 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
             }
 
             let (h_source_res, h_dest_res) = rayon::join(
-                || compute_hashes(&source_entry.path, config.algo),
-                || compute_hashes(&dest_entry.path, config.algo),
+                || {
+                    compute_hashes(
+                        &source_entry.path,
+                        config.algo,
+                        config.mmap_threshold,
+                        config.rayon_threshold,
+                    )
+                },
+                || {
+                    compute_hashes(
+                        &dest_entry.path,
+                        config.algo,
+                        config.mmap_threshold,
+                        config.rayon_threshold,
+                    )
+                },
             );
 
             let result = match (h_source_res, h_dest_res) {
@@ -289,7 +308,39 @@ pub fn run_sync(config: SyncConfig) -> Result<ExitStatus> {
                         .parent()
                         .context("Failed to get parent directory")?;
                     fs::create_dir_all(parent)?;
-                    fs::copy(&source_path, &dest_path)?;
+
+                    // Copy to a temp file in the same directory, then rename into
+                    // place. This keeps a crash or interruption mid-copy from
+                    // leaving a truncated/corrupt file at dest_path — the rename
+                    // is atomic on the same filesystem, so dest_path either has
+                    // the old contents or the fully-copied new contents, never
+                    // something in between.
+                    let tmp_file_name = format!(
+                        ".{}.cmpf-tmp-{}",
+                        dest_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default(),
+                        std::process::id()
+                    );
+                    let tmp_path = parent.join(tmp_file_name);
+                    fs::copy(&source_path, &tmp_path).with_context(|| {
+                        format!(
+                            "Failed to copy {} to temp file {}",
+                            source_path.display(),
+                            tmp_path.display()
+                        )
+                    })?;
+                    if let Err(e) = fs::rename(&tmp_path, &dest_path) {
+                        let _ = fs::remove_file(&tmp_path);
+                        return Err(e).with_context(|| {
+                            format!(
+                                "Failed to move temp file into place at {}",
+                                dest_path.display()
+                            )
+                        });
+                    }
+
                     if action.status == Status::Create {
                         created_count += 1;
                         println!("{} {}", "CREATED".green(), dest_path.display());

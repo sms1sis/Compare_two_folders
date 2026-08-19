@@ -22,6 +22,7 @@ use crate::compare::{CompareConfig, ExitStatus, run_compare};
 use crate::models::{HashAlgo, Mode, OutputFormat, SymlinkMode};
 use crate::snapshot::{SnapshotConfig, VerifyConfig, create_snapshot, verify_snapshot};
 use crate::sync::{SyncConfig, run_sync};
+use crate::utils::{DEFAULT_MMAP_THRESHOLD, DEFAULT_RAYON_THRESHOLD, parse_size};
 
 #[derive(Parser)]
 #[command(
@@ -84,6 +85,26 @@ struct Cli {
     /// Command to use for external diff (e.g., "code --diff", "vimdiff")
     #[arg(long, value_name = "COMMAND", global = true)]
     diff_cmd: Option<String>,
+    #[arg(
+        long,
+        value_parser = parse_size,
+        default_value_t = DEFAULT_MMAP_THRESHOLD,
+        value_name = "SIZE",
+        global = true
+    )]
+    /// Minimum file size (e.g. "32KB", "1MiB", "65536") before switching from a
+    /// buffered read to memory-mapped I/O for hashing
+    mmap_threshold: u64,
+    #[arg(
+        long,
+        value_parser = parse_size,
+        default_value_t = DEFAULT_RAYON_THRESHOLD,
+        value_name = "SIZE",
+        global = true
+    )]
+    /// Minimum file size (e.g. "128MB", "1GiB") before enabling BLAKE3's
+    /// internal Rayon-based multithreaded hashing for a single file
+    rayon_threshold: u64,
 }
 
 #[derive(Subcommand)]
@@ -177,6 +198,8 @@ fn run() -> Result<ExitStatus> {
             threads: cli.threads,
             no_sort: cli.no_sort,
             diff_cmd: cli.diff_cmd,
+            mmap_threshold: cli.mmap_threshold,
+            rayon_threshold: cli.rayon_threshold,
         }),
         Some(Commands::Snapshot { folder, output }) => {
             create_snapshot(SnapshotConfig {
@@ -190,6 +213,8 @@ fn run() -> Result<ExitStatus> {
                 ignore: cli.ignore,
                 symlinks: cli.symlinks,
                 threads: cli.threads,
+                mmap_threshold: cli.mmap_threshold,
+                rayon_threshold: cli.rayon_threshold,
             })?;
             Ok(ExitStatus::Success)
         }
@@ -199,6 +224,8 @@ fn run() -> Result<ExitStatus> {
             threads: cli.threads,
             output_format: cli.output_format,
             verbose: cli.verbose,
+            mmap_threshold: cli.mmap_threshold,
+            rayon_threshold: cli.rayon_threshold,
         }),
         Some(Commands::Sync {
             source,
@@ -220,6 +247,8 @@ fn run() -> Result<ExitStatus> {
             types: cli.types,
             ignore: cli.ignore,
             threads: cli.threads,
+            mmap_threshold: cli.mmap_threshold,
+            rayon_threshold: cli.rayon_threshold,
         }),
         None => {
             // Default to Compare with legacy args
@@ -241,6 +270,8 @@ fn run() -> Result<ExitStatus> {
                     threads: cli.threads,
                     no_sort: cli.no_sort,
                     diff_cmd: cli.diff_cmd,
+                    mmap_threshold: cli.mmap_threshold,
+                    rayon_threshold: cli.rayon_threshold,
                 })
             } else {
                 use clap::CommandFactory;

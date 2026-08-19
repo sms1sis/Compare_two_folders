@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -41,6 +41,8 @@ pub struct CompareConfig {
     pub threads: Option<usize>,
     pub no_sort: bool,
     pub diff_cmd: Option<String>,
+    pub mmap_threshold: u64,
+    pub rayon_threshold: u64,
 }
 
 pub fn run_compare(config: CompareConfig) -> Result<ExitStatus> {
@@ -155,8 +157,22 @@ pub(crate) fn compare_files_core(
     }
 
     let (h1_res, h2_res) = rayon::join(
-        || compute_hashes(&entry1.path, config.algo),
-        || compute_hashes(&entry2.path, config.algo),
+        || {
+            compute_hashes(
+                &entry1.path,
+                config.algo,
+                config.mmap_threshold,
+                config.rayon_threshold,
+            )
+        },
+        || {
+            compute_hashes(
+                &entry2.path,
+                config.algo,
+                config.mmap_threshold,
+                config.rayon_threshold,
+            )
+        },
     );
 
     let (status, h1, h2) = match (h1_res, h2_res) {
@@ -241,7 +257,11 @@ fn run_realtime(config: &CompareConfig, start_time: Instant) -> Result<ExitStatu
     let mut files2_map: HashMap<PathBuf, FileEntry> = files2
         .into_iter()
         .map(|f| {
-            let rel = f.path.strip_prefix(&config.folder2).unwrap().to_path_buf();
+            let rel = f
+                .path
+                .strip_prefix(&config.folder2)
+                .expect("walked path outside folder2 root")
+                .to_path_buf();
             (rel, f)
         })
         .collect();
@@ -251,7 +271,17 @@ fn run_realtime(config: &CompareConfig, start_time: Instant) -> Result<ExitStatu
     let mut missing = 0;
 
     for entry1 in &files1 {
-        let rel_path = entry1.path.strip_prefix(&config.folder1)?.to_path_buf();
+        let rel_path = entry1
+            .path
+            .strip_prefix(&config.folder1)
+            .with_context(|| {
+                format!(
+                    "walked path {} outside folder1 root {}",
+                    entry1.path.display(),
+                    config.folder1.display()
+                )
+            })?
+            .to_path_buf();
 
         if let Some(entry2) = files2_map.remove(&rel_path) {
             let result = compare_files_core(rel_path.clone(), entry1, &entry2, config)?;
@@ -387,7 +417,10 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
         .into_par_iter()
         .map(|f| {
             (
-                f.path.strip_prefix(&config.folder1).unwrap().to_path_buf(),
+                f.path
+                    .strip_prefix(&config.folder1)
+                    .expect("walked path outside folder1 root")
+                    .to_path_buf(),
                 f,
             )
         })
@@ -396,7 +429,10 @@ fn run_batch(config: &CompareConfig, start_time: Instant) -> Result<ExitStatus> 
         .into_par_iter()
         .map(|f| {
             (
-                f.path.strip_prefix(&config.folder2).unwrap().to_path_buf(),
+                f.path
+                    .strip_prefix(&config.folder2)
+                    .expect("walked path outside folder2 root")
+                    .to_path_buf(),
                 f,
             )
         })

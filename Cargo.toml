@@ -1,6 +1,6 @@
 [package]
 name = "cmpf"
-version = "5.2.1"
+version = "5.3.0"
 edition = "2024"
 authors = ["sms1sis <sadimsajid2004@gmail.com>"]
 license = "GPL-3.0-or-later"
@@ -10,7 +10,7 @@ categories = ["command-line-utilities", "filesystem"]
 keywords = ["compare", "folder", "diff", "directory", "sync"]
 
 [dependencies]
-sha2 = "0.11.0-rc.5"
+sha2 = "0.11.0"
 blake3 = { version = "1.8.3", features = ["rayon"] }
 colored = "3.1.1"
 serde = { version = "1.0.228", features = ["derive"] }

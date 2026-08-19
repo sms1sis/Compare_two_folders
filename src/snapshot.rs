@@ -61,6 +61,8 @@ pub struct SnapshotConfig {
     pub ignore: Option<Vec<String>>,
     pub symlinks: SymlinkMode,
     pub threads: Option<usize>,
+    pub mmap_threshold: u64,
+    pub rayon_threshold: u64,
 }
 
 pub fn create_snapshot(config: SnapshotConfig) -> Result<()> {
@@ -107,7 +109,12 @@ pub fn create_snapshot(config: SnapshotConfig) -> Result<()> {
             }
             // Fix #10: surface hash errors instead of silently storing None hashes.
             // We propagate the error so the snapshot is not saved with corrupt data.
-            let h = compute_hashes(&f.path, config.algo)?;
+            let h = compute_hashes(
+                &f.path,
+                config.algo,
+                config.mmap_threshold,
+                config.rayon_threshold,
+            )?;
             let rel = f
                 .path
                 .strip_prefix(&config.folder)
@@ -164,6 +171,8 @@ pub struct VerifyConfig {
     pub threads: Option<usize>,
     pub output_format: OutputFormat,
     pub verbose: bool,
+    pub mmap_threshold: u64,
+    pub rayon_threshold: u64,
 }
 
 pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
@@ -246,8 +255,13 @@ pub fn verify_snapshot(config: VerifyConfig) -> Result<ExitStatus> {
             if let Some(curr_entry) = current_map.get(rel_path) {
                 // Fix #10: propagate hashing errors instead of silently treating
                 // them as DIFF (the old unwrap_or behaviour).
-                let h = compute_hashes(&curr_entry.path, snapshot.algo)
-                    .context("Failed to hash file during verification")?;
+                let h = compute_hashes(
+                    &curr_entry.path,
+                    snapshot.algo,
+                    config.mmap_threshold,
+                    config.rayon_threshold,
+                )
+                .context("Failed to hash file during verification")?;
 
                 let status = match snapshot.algo {
                     HashAlgo::Sha256 => {

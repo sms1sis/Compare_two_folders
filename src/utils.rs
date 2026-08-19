@@ -12,12 +12,57 @@ use std::sync::mpsc;
 
 use crate::models::{ErrorEntry, FileEntry, HashAlgo, HashResult, SymlinkMode};
 
-pub fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
+/// Default minimum file size (bytes) above which memory-mapped I/O is used
+/// instead of reading the whole file into a `Vec<u8>`. Overridable via `--mmap-threshold`.
+pub const DEFAULT_MMAP_THRESHOLD: u64 = 32 * 1024;
+
+/// Default minimum file size (bytes) above which BLAKE3's internal Rayon-based
+/// multithreaded hashing is used. Overridable via `--rayon-threshold`.
+pub const DEFAULT_RAYON_THRESHOLD: u64 = 128 * 1024 * 1024;
+
+/// Parses a human-friendly size string (e.g. "32KB", "128MiB", "65536") into a
+/// byte count. Bare numbers are treated as bytes. Used as a `clap` value_parser
+/// for `--mmap-threshold` and `--rayon-threshold`.
+pub fn parse_size(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    let lower = s.to_lowercase();
+
+    // Checked longest-suffix-first so e.g. "32KiB" matches "kib" (1024) before
+    // the bare "b" (1) suffix would otherwise shadow it.
+    const SUFFIXES: &[(&str, u64)] = &[
+        ("kib", 1024),
+        ("mib", 1024 * 1024),
+        ("gib", 1024 * 1024 * 1024),
+        ("kb", 1000),
+        ("mb", 1_000_000),
+        ("gb", 1_000_000_000),
+        ("k", 1024),
+        ("m", 1024 * 1024),
+        ("g", 1024 * 1024 * 1024),
+        ("b", 1),
+    ];
+
+    let (num_str, multiplier) = SUFFIXES
+        .iter()
+        .find_map(|(suffix, mult)| lower.strip_suffix(suffix).map(|n| (n.trim(), *mult)))
+        .unwrap_or((lower.as_str(), 1));
+
+    let num: u64 = num_str
+        .parse()
+        .map_err(|_| format!("invalid size: '{s}' (expected e.g. '32KB', '128MiB', '65536')"))?;
+
+    num.checked_mul(multiplier)
+        .ok_or_else(|| format!("size '{s}' overflows u64"))
+}
+
+pub fn compute_hashes(
+    path: &Path,
+    algo: HashAlgo,
+    mmap_threshold: u64,
+    rayon_threshold: u64,
+) -> io::Result<HashResult> {
     let metadata = fs::metadata(path)?;
     let len = metadata.len();
-
-    const MMAP_THRESHOLD: u64 = 32 * 1024;
-    const RAYON_THRESHOLD: u64 = 128 * 1024 * 1024;
 
     let mut sha256_hasher = if matches!(algo, HashAlgo::Sha256 | HashAlgo::Both) {
         Some(Sha256::new())
@@ -38,7 +83,7 @@ pub fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
         });
     }
 
-    if len < MMAP_THRESHOLD {
+    if len < mmap_threshold {
         let data = fs::read(path)?;
         if let Some(h) = sha256_hasher.as_mut() {
             h.update(&data);
@@ -54,7 +99,7 @@ pub fn compute_hashes(path: &Path, algo: HashAlgo) -> io::Result<HashResult> {
             h.update(&mmap);
         }
         if let Some(bh) = blake3_hasher.as_mut() {
-            if len > RAYON_THRESHOLD {
+            if len > rayon_threshold {
                 bh.update_rayon(&mmap);
             } else {
                 bh.update(&mmap);

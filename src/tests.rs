@@ -4,7 +4,7 @@ mod cmpf_tests {
     use crate::models::{HashAlgo, OutputFormat, SymlinkMode};
     use crate::snapshot::{SnapshotConfig, VerifyConfig, create_snapshot, verify_snapshot};
     use crate::sync::{SyncConfig, run_sync};
-    use crate::utils::{collect_files, compute_hashes};
+    use crate::utils::{DEFAULT_MMAP_THRESHOLD, DEFAULT_RAYON_THRESHOLD, collect_files, compute_hashes, parse_size};
     use std::fs::{self, File};
     use std::io::Write;
     use tempfile::tempdir;
@@ -15,7 +15,13 @@ mod cmpf_tests {
         let file_path = dir.path().join("empty.txt");
         File::create(&file_path).unwrap();
 
-        let res = compute_hashes(&file_path, HashAlgo::Blake3).unwrap();
+        let res = compute_hashes(
+            &file_path,
+            HashAlgo::Blake3,
+            DEFAULT_MMAP_THRESHOLD,
+            DEFAULT_RAYON_THRESHOLD,
+        )
+        .unwrap();
         assert!(res.blake3.is_some());
         assert!(res.sha256.is_none());
     }
@@ -27,11 +33,55 @@ mod cmpf_tests {
         let mut file = File::create(&file_path).unwrap();
         writeln!(file, "hello world").unwrap();
 
-        let res_b3 = compute_hashes(&file_path, HashAlgo::Blake3).unwrap();
-        let res_sha = compute_hashes(&file_path, HashAlgo::Sha256).unwrap();
+        let res_b3 = compute_hashes(
+            &file_path,
+            HashAlgo::Blake3,
+            DEFAULT_MMAP_THRESHOLD,
+            DEFAULT_RAYON_THRESHOLD,
+        )
+        .unwrap();
+        let res_sha = compute_hashes(
+            &file_path,
+            HashAlgo::Sha256,
+            DEFAULT_MMAP_THRESHOLD,
+            DEFAULT_RAYON_THRESHOLD,
+        )
+        .unwrap();
 
         assert!(res_b3.blake3.is_some());
         assert!(res_sha.sha256.is_some());
+    }
+
+    #[test]
+    fn test_compute_hashes_respects_mmap_threshold() {
+        // Force the mmap path on a tiny file by setting the threshold to 0,
+        // and confirm it still hashes correctly (exercises --mmap-threshold).
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("tiny.txt");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "x").unwrap();
+
+        let via_mmap = compute_hashes(&file_path, HashAlgo::Blake3, 0, DEFAULT_RAYON_THRESHOLD)
+            .unwrap();
+        let via_buffer = compute_hashes(
+            &file_path,
+            HashAlgo::Blake3,
+            DEFAULT_MMAP_THRESHOLD,
+            DEFAULT_RAYON_THRESHOLD,
+        )
+        .unwrap();
+
+        assert_eq!(via_mmap.blake3, via_buffer.blake3);
+    }
+
+    #[test]
+    fn test_parse_size() {
+        assert_eq!(parse_size("65536").unwrap(), 65536);
+        assert_eq!(parse_size("32KiB").unwrap(), 32 * 1024);
+        assert_eq!(parse_size("1MiB").unwrap(), 1024 * 1024);
+        assert_eq!(parse_size("128MB").unwrap(), 128_000_000);
+        assert_eq!(parse_size("1GiB").unwrap(), 1024 * 1024 * 1024);
+        assert!(parse_size("not-a-size").is_err());
     }
 
     #[test]
@@ -104,6 +154,8 @@ mod cmpf_tests {
             ignore: None,
             symlinks: SymlinkMode::Ignore,
             threads: None,
+            mmap_threshold: DEFAULT_MMAP_THRESHOLD,
+            rayon_threshold: DEFAULT_RAYON_THRESHOLD,
         })
         .unwrap();
 
@@ -116,6 +168,8 @@ mod cmpf_tests {
             threads: None,
             output_format: OutputFormat::Txt,
             verbose: false,
+            mmap_threshold: DEFAULT_MMAP_THRESHOLD,
+            rayon_threshold: DEFAULT_RAYON_THRESHOLD,
         })
         .unwrap();
         assert_eq!(status, ExitStatus::Success);
@@ -129,6 +183,8 @@ mod cmpf_tests {
             threads: None,
             output_format: OutputFormat::Txt,
             verbose: false,
+            mmap_threshold: DEFAULT_MMAP_THRESHOLD,
+            rayon_threshold: DEFAULT_RAYON_THRESHOLD,
         })
         .unwrap();
         assert_eq!(status, ExitStatus::Diff);
@@ -161,6 +217,8 @@ mod cmpf_tests {
             types: None,
             ignore: None,
             threads: None,
+            mmap_threshold: DEFAULT_MMAP_THRESHOLD,
+            rayon_threshold: DEFAULT_RAYON_THRESHOLD,
         })
         .unwrap();
 
@@ -269,6 +327,8 @@ mod cmpf_tests {
             types: None,
             ignore: None,
             threads: None,
+            mmap_threshold: DEFAULT_MMAP_THRESHOLD,
+            rayon_threshold: DEFAULT_RAYON_THRESHOLD,
         })
         .unwrap();
 
