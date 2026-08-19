@@ -4,7 +4,9 @@ mod cmpf_tests {
     use crate::models::{HashAlgo, OutputFormat, SymlinkMode};
     use crate::snapshot::{SnapshotConfig, VerifyConfig, create_snapshot, verify_snapshot};
     use crate::sync::{SyncConfig, run_sync};
-    use crate::utils::{DEFAULT_MMAP_THRESHOLD, DEFAULT_RAYON_THRESHOLD, collect_files, compute_hashes, parse_size};
+    use crate::utils::{
+        DEFAULT_MMAP_THRESHOLD, DEFAULT_RAYON_THRESHOLD, collect_files, compute_hashes, parse_size,
+    };
     use std::fs::{self, File};
     use std::io::Write;
     use tempfile::tempdir;
@@ -61,8 +63,8 @@ mod cmpf_tests {
         let mut file = File::create(&file_path).unwrap();
         writeln!(file, "x").unwrap();
 
-        let via_mmap = compute_hashes(&file_path, HashAlgo::Blake3, 0, DEFAULT_RAYON_THRESHOLD)
-            .unwrap();
+        let via_mmap =
+            compute_hashes(&file_path, HashAlgo::Blake3, 0, DEFAULT_RAYON_THRESHOLD).unwrap();
         let via_buffer = compute_hashes(
             &file_path,
             HashAlgo::Blake3,
