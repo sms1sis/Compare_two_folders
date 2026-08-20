@@ -84,29 +84,42 @@ The executable will be located at `./target/release/cmpf`.
 
 ---
 
-## 🔐 Verification
+### Options
 
-To ensure the integrity of your download, we provide a `SHA256SUMS.txt` file for every release. You can use this to verify that the binary you downloaded has not been corrupted or tampered with.
+```text
+Usage: cmpf [COMMAND] [FOLDER1] [FOLDER2] [OPTIONS]
 
-> [!IMPORTANT]
-> Make sure you download both the binary and the `SHA256SUMS.txt` file to the same directory before running these commands.
+Commands:
+  compare   Standard comparison between two folders
+  snapshot  Create a snapshot of a folder's state
+  verify    Verify a folder against a previously created snapshot
+  sync      Sync changes from source to destination
+  help      Print this message or the help of the given subcommand(s)
 
-### Linux (Standard Distros)
-For Ubuntu, Arch, Termux, etc.:
-```sh
-sha256sum -c SHA256SUMS.txt --ignore-missing
-```
+Options:
+  -m, --mode <MODE>                    Processing mode: Realtime (sequential), Batch (parallel report), or Metadata (skip hashing) [default: batch] [possible values: realtime, batch, metadata]
+  -a, --algo <ALGO>                    Hashing algorithm to use for file comparison [default: blake3] [possible values: sha256, blake3, both]
+  -o, --output-folder <OUTPUT_FOLDER>  (Batch mode only) Folder to save the report file
+  -f, --output-format <OUTPUT_FORMAT>  (Batch mode only) Format for the output report [default: txt] [possible values: txt, json]
+      --depth <DEPTH>                  Maximum recursion depth (default: infinite)
+      --no-recursive                   Disable recursive comparison (equivalent to --depth 1)
+      --symlinks <SYMLINKS>            Handling strategy for symbolic links [default: ignore] [possible values: ignore, follow, compare]
+  -v, --verbose                        Show hash values for matched and different files
+  -H, --hidden                         Include hidden files and folders in the comparison
+  -t, --type <TYPES>                   File extensions to include (e.g., "txt", "jpg"). Can be used multiple times
+  -i, --ignore <IGNORE>                A gitignore-style pattern to ignore. Can be used multiple times
+  -j, --threads <COUNT>                Number of threads to use for parallel processing (default: number of CPU cores)
+  -n, --no-sort                        Disable alphabetical sorting of the output (improves performance)
+      --diff-cmd <COMMAND>             Command to use for external diff (e.g., "code --diff", "vimdiff")
+      --mmap-threshold <SIZE>          Minimum file size (e.g. "32KB", "1MiB", "65536") before switching from a buffered read to memory-mapped I/O for hashing [default: 32768]
+      --rayon-threshold <SIZE>         Minimum file size (e.g. "128MB", "1GiB") before enabling BLAKE3's internal Rayon-based multithreaded hashing for a single file [default: 134217728]
+  -h, --help                           Print help
+  -V, --version                        Print version
 
-### Linux (Minimal/Alpine/BusyBox)
-For environments where `sha256sum` lacks extended flags:
-```sh
-sha256sum -c SHA256SUMS.txt
-```
-*Note: This may print error messages for missing files (the other binaries you didn't download). Look for "OK" next to your downloaded file.*
+Legacy Mode:
+  [FOLDER1]  First folder to compare (legacy mode)
+  [FOLDER2]  Second folder to compare (legacy mode)
 
-### macOS
-```sh
-shasum -a 256 -c SHA256SUMS.txt
 ```
 
 ### Windows
