@@ -84,7 +84,7 @@ The executable will be located at `./target/release/cmpf`.
 
 ---
 
-### Options
+## ☑️ Options
 
 ```text
 Usage: cmpf [COMMAND] [FOLDER1] [FOLDER2] [OPTIONS]
@@ -121,21 +121,6 @@ Legacy Mode:
   [FOLDER2]  Second folder to compare (legacy mode)
 
 ```
-
-### Windows
-
-**PowerShell:**
-```powershell
-Get-FileHash .\cmpf.exe -Algorithm SHA256
-```
-*Compare the output hash manually with the entry in `SHA256SUMS.txt`.*
-
-**Command Prompt:**
-```cmd
-certutil -hashfile cmpf.exe SHA256
-```
-*Compare the output hash manually with the entry in `SHA256SUMS.txt`.*
-
 ---
 
 ## 💡 Usage
