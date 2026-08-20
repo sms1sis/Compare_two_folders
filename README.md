@@ -1,13 +1,18 @@
 # cmpf: Folder File Comparison Utility
 
+[![Crates.io](https://img.shields.io/crates/v/cmpf.svg)](https://crates.io/crates/cmpf)
+[![Rust CI](https://github.com/sms1sis/Compare_two_folders/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/sms1sis/Compare_two_folders/actions/workflows/rust-ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
 A high-performance command-line utility implemented in **Rust** for efficiently comparing and synchronizing files across two directories. `cmpf` helps developers, system administrators, and anyone dealing with file synchronization or verification tasks to quickly identify matches, differences, missing, and extra files based on their names and cryptographic hashes, or even synchronize them.
 
 ---
 
 ## ✨ Features
 
-*   **Robust Test Suite**: Now includes a comprehensive suite of 10 tests covering core logic, snapshots, synchronization, and edge cases.
+*   **Robust Test Suite**: Includes a comprehensive suite of 12 tests covering core logic, snapshots, synchronization, size parsing, and edge cases.
 *   **CI/CD Workflow**: Automated testing and linting (clippy, rustfmt) on every push via GitHub Actions.
+*   **Tunable Hashing I/O**: Fine-tune the memory-mapping and internal multithreading cutoffs used during hashing via `--mmap-threshold` and `--rayon-threshold` to match your storage and CPU profile.
 *   **Bidirectional Synchronization**: Synchronize files and directories between two locations. Supports dry-runs and optional deletion of extraneous files.
 *   **Snapshot & Verify Data Integrity**: Create a cryptographic manifest of a directory's state at a point in time, and later verify the directory against this manifest to detect changes, corruption, or tampering.
 *   **External Diff Tool Integration**: Seamlessly launch your preferred external diff viewer (e.g., `code --diff`, `vimdiff`) for direct inspection of differing files.
@@ -55,29 +60,28 @@ A high-performance command-line utility implemented in **Rust** for efficiently 
 
 ## 🚀 Getting Started
 
-These instructions will get you a copy of the project up and running on your local machine.
-
 ### 📦 Prerequisites
 
-*   **Rust**: `cmpf` is built with Rust. If you don't have Rust and Cargo installed, you can get them from [rustup.rs](https://www.rust-lang.org/tools/install).
+*   **Rust**: `cmpf` is built with Rust (edition 2024, requires Rust **1.85** or newer). If you don't have Rust and Cargo installed, get them from [rustup.rs](https://www.rust-lang.org/tools/install).
 
-### ⚙️ Installation & Building
+### ⚙️ Installation
 
-1.  **Clone the repository:**
-    ```sh
-    git clone https://github.com/sms1sis/Compare_two_folders.git
-    cd Compare_two_folders
-    ```
-2.  **Build the project in release mode:**
-    ```sh
-    cargo build --release
-    ```
-    The executable will be located at `./target/release/cmpf`.
+**Option 1 — Install from crates.io (compiles from source on your machine):**
+```sh
+cargo install cmpf
+```
 
-3. **Via cargo (compiles from source):**
-    ```sh
-    cargo install cmpf
-    ```
+**Option 2 — Download a prebuilt binary:**
+Grab the archive for your platform from the [Releases page](https://github.com/sms1sis/Compare_two_folders/releases) — no Rust toolchain required. See [Verification](#-verification) below to confirm the download's integrity.
+
+**Option 3 — Build from source:**
+```sh
+git clone https://github.com/sms1sis/Compare_two_folders.git
+cd Compare_two_folders
+cargo build --release
+```
+The executable will be located at `./target/release/cmpf`.
+
 ---
 
 ## 🔐 Verification
@@ -246,6 +250,11 @@ Synchronizes files and directories from the source to the destination.
     cmpf sync ./source_folder ./dest_folder --dry-run false --delete-extraneous
     ```
 
+11. **Tune Hashing I/O for Large Files on a Many-Core Machine**:
+    ```sh
+    cmpf compare ./big_dataset_a ./big_dataset_b --mmap-threshold 1MiB --rayon-threshold 64MiB
+    ```
+
 ---
 
 ## 🤝 Contributing
@@ -269,4 +278,4 @@ This project is licensed under the GPL-3.0 license - see the `LICENSE` file for 
 ## 🙏 Acknowledgments
 
 *   Built with the power of Rust and its fantastic ecosystem of crates.
-*   Special thanks to the developers of `clap`, `rayon`, `colored`, `indicatif`, `blake3`, `sha2`, `serde`, `ignore`, `globset` and `chrono`.
+*   Special thanks to the developers of `clap`, `rayon`, `colored`, `indicatif`, `blake3`, `sha2`, `serde`, `ignore`, `globset`, `chrono`, `memmap2`, `hashbrown`, and `mimalloc`.

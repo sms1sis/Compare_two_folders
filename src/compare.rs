@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
 use colored::*;
+use hashbrown::{HashMap, HashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::time::Instant;

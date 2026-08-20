@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use colored::*;
+use hashbrown::{HashMap, HashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;

@@ -1,9 +1,9 @@
 use anyhow::Result;
 use globset::{Glob, GlobSetBuilder};
+use hashbrown::HashSet;
 use ignore::WalkBuilder;
 use memmap2::Mmap;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 use std::fs::{self, File};
 use std::io;

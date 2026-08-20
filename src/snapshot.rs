@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use colored::*;
+use hashbrown::HashMap;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
